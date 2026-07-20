@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Affiliate Creator Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --topbar-h:48px;
+  --brand:#F5A800;--brand2:#D94F00;
+  --text:#111;--muted:#666;--muted2:#999;
+  --border:#e4e4e7;--bg:#f4f4f5;--white:#fff;
+  --radius:8px;--shadow:0 1px 4px rgba(0,0,0,.08);
+}
+body{font-family:'Poppins',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh}
+h1,h2,h3,.topbar-logo{font-family:'Montserrat',sans-serif}
+
+/* ── Top bar ── */
+.topbar{
+  height:var(--topbar-h);background:var(--white);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 18px;gap:16px;z-index:100
+}
+.topbar-logo{font-size:14px;font-weight:700;letter-spacing:-.3px;white-space:nowrap}
+.topbar-logo em{color:var(--brand2);font-style:normal}
+.topbar-spacer{flex:1}
+.topbar-meta{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+
+/* ── Layout ── */
+.wrap{max-width:1180px;margin:0 auto;padding:24px 18px 48px}
+.sec{
+  background:var(--white);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:18px;margin-bottom:16px
+}
+.sec-title{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.5px;
+  text-transform:uppercase;margin-bottom:14px}
+
+/* ── Fields ── */
+.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:640px){.fields{grid-template-columns:repeat(2,1fr)}}
+label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px}
+input[type=text],select{
+  width:100%;font-size:13px;font-weight:500;border:1px solid var(--border);border-radius:6px;
+  padding:8px 10px;background:var(--white);color:var(--text);font-family:inherit
+}
+input[type=text]:focus,select:focus{outline:none;border-color:var(--brand2)}
+select{cursor:pointer;font-weight:600}
+
+/* ── Buttons ── */
+.row{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.btn-primary{
+  padding:11px 24px;border-radius:8px;background:var(--brand2);color:var(--white);
+  border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;
+  box-shadow:0 1px 3px rgba(217,79,0,.3);transition:filter .12s,box-shadow .12s
+}
+.btn-primary:hover:not(:disabled){background:#c24500;box-shadow:0 2px 8px rgba(217,79,0,.35)}
+.btn-primary:disabled{opacity:.55;cursor:progress}
+.btn{
+  font-size:12px;padding:7px 12px;border:1px solid var(--border);border-radius:5px;
+  background:var(--white);cursor:pointer;color:var(--text);font-family:inherit;font-weight:500
+}
+.btn:hover{background:var(--bg)}
+.btn.dark{background:var(--text);color:var(--white);border-color:var(--text);font-weight:600}
+.btn.dark:hover{background:#333}
+.btn.ghost{border-color:transparent;color:var(--muted2);font-size:11px}
+.btn.ghost:hover{background:var(--bg);color:var(--text)}
+.check{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;
+  font-weight:500;color:var(--text);margin:0}
+.check input{width:auto;accent-color:var(--brand2);cursor:pointer}
+
+/* ── Action bar ── */
+.action-row{margin-top:18px;align-items:center}
+.sub-controls{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.sub-controls input,.sub-controls select{font-size:12px;padding:6px 8px}
+.toolbar{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);gap:10px}
+
+/* ── Status / notes / progress ── */
+.status{margin-left:auto;font-size:12px;font-weight:600;color:var(--muted)}
+.note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+.note strong{color:var(--text);font-weight:600}
+.first-run-note{margin-top:8px}
+.progress{
+  display:none;margin-top:12px;padding:9px 12px;border-radius:7px;
+  font-size:12.5px;font-weight:600;line-height:1.4
+}
+.progress.show{display:block}
+.progress.run{background:#fff6ee;color:#9a4a12;border:1px solid #f3d3ba}
+.progress.warn{background:#fff8e6;color:#8a5a00;border:1px solid #f0d68a}
+.progress.ok{background:#eaf7ee;color:#1c7a3a;border:1px solid #b9e3c6}
+.progress.err{background:#fdecea;color:#b3261e;border:1px solid #f3c0bb}
+
+/* ── Table ── */
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
+th{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.4px;
+  text-transform:uppercase;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--bg)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.approx{color:var(--muted2)}
+a{color:var(--brand2);text-decoration:none;font-weight:600}
+a:hover{text-decoration:underline}
+.nick{color:var(--muted2);font-weight:400}
+.badge{
+  display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;
+  font-size:9px;font-weight:700;letter-spacing:.3px;
+  background:#fff7e6;color:#a16207;border:1px solid var(--brand)
+}
+.empty{color:var(--muted2);padding:40px 12px;text-align:center;font-size:13px}
+.btn.dm{font-weight:700;padding:5px 14px;border-color:var(--brand2);color:var(--brand2)}
+.btn.dm:hover{background:var(--brand2);color:var(--white)}
+/* Solid fill = we have the DM link, so it opens the chat directly.            */
+/* Outline = no id yet, opens the profile as a fallback.                       */
+.btn.dm.ready{background:var(--brand2);color:var(--white)}
+.btn.dm.ready:hover{filter:brightness(1.1)}
+textarea{
+  width:100%;height:120px;padding:10px 12px;border:1px solid var(--border);
+  border-radius:6px;background:var(--white);color:var(--text);
+  font-family:inherit;font-size:13px;line-height:1.55;resize:vertical
+}
+textarea:focus{outline:none;border-color:var(--brand2)}
+code{
+  background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  padding:1px 4px;font-size:11px;font-family:ui-monospace,Menlo,monospace
+}
+.preview{
+  white-space:pre-wrap;font-family:inherit;font-size:12.5px;color:var(--muted);
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  padding:12px;margin-top:10px;line-height:1.55
+}
+.preview:empty{display:none}
+summary{cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸ ";color:var(--brand2);font-weight:700}
+details[open] summary::before{content:"▾ "}
+summary:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">Affiliate <em>Creator Finder</em></div>
+  <div class="topbar-spacer"></div>
+  <div class="topbar-meta" id="pool_meta">—</div>
+</div>
+
+<div class="wrap">
+
+  <div class="sec">
+    <div class="sec-title">Filters</div>
+    <div class="fields">
+      <div>
+        <label for="category">Product category</label>
+        <select id="category">
+          <option value="">All categories</option>
+        </select>
+      </div>
+      <div>
+        <label for="gmv_bucket">GMV (RM)</label>
+        <select id="gmv_bucket">
+          <option value="">Any</option>
+          <option value="0-100">RM0 – 100</option>
+          <option value="100-1000">RM100 – 1,000</option>
+          <option value="1000-10000">RM1,000 – 10,000</option>
+          <option value="10000+">RM10,000+</option>
+        </select>
+      </div>
+      <div>
+        <label for="follower_tier">Followers</label>
+        <select id="follower_tier">
+          <option value="">Any</option>
+          <option value="nano">Nano (1K – 10K)</option>
+          <option value="micro">Micro (10K – 100K)</option>
+          <option value="macro">Macro (100K – 1M)</option>
+          <option value="mega">Mega (1M+)</option>
+        </select>
+      </div>
+      <div>
+        <label for="min_gpc">GMV per customer (RM)</label>
+        <input id="min_gpc" type="text" placeholder="25">
+      </div>
+      <div>
+        <label for="min_items">Items sold at least</label>
+        <input id="min_items" type="text" placeholder="500">
+      </div>
+      <div>
+        <label for="limit">Creators to reach</label>
+        <input id="limit" type="text" placeholder="25">
+      </div>
+    </div>
+    <!-- Primary action: fetch from TikTok, then apply the filters above. -->
+    <div class="row action-row">
+      <button class="btn-primary" id="find_btn" onclick="findCreators()">🔎 Find creators</button>
+      <span class="sub-controls">
+        <label for="target" style="margin:0">How many</label>
+        <input id="target" type="text" value="120" style="width:64px">
+        <label for="region" style="margin:0">Region</label>
+        <select id="region" style="width:auto">
+          <option value="MY" selected>Malaysia (MY)</option>
+          <option value="SG">Singapore (SG)</option>
+          <option value="TH">Thailand (TH)</option>
+          <option value="ID">Indonesia (ID)</option>
+          <option value="VN">Vietnam (VN)</option>
+          <option value="PH">Philippines (PH)</option>
+          <option value="GB">United Kingdom (GB)</option>
+          <option value="US">United States (US)</option>
+        </select>
+      </span>
+      <span class="status" id="status">—</span>
+    </div>
+    <div class="progress" id="progress"></div>
+    <div class="note first-run-note" id="first_run_note">
+      First time only: a separate Chrome window opens for you to log into Seller
+      Center — after that it's remembered and skips straight to fetching.
+    </div>
+
+    <!-- Secondary controls: sort / refine what's already loaded. -->
+    <div class="row toolbar">
+      <button class="btn" onclick="search()" title="Re-apply the filters to the creators already loaded, without fetching from TikTok again">Filter loaded</button>
+      <label for="sort" style="margin:0">Rank by</label>
+      <select id="sort" style="width:auto" onchange="search()">
+        <option value="balanced" selected>All 4 combined</option>
+        <option value="gmv">GMV only</option>
+        <option value="gmv_per_customer">GMV per customer only</option>
+        <option value="followers">Followers only</option>
+        <option value="items_sold">Items sold only</option>
+      </select>
+      <button class="btn" onclick="copyHandles()">Copy handles</button>
+      <button class="btn" onclick="tiktokLogin()" title="One-time: sign into the TikTok account you DM from, in the app's DM browser">Log into TikTok (for DMs)</button>
+      <label class="check">
+        <input type="checkbox" id="incl_uncertain" checked onchange="search()">
+        Show hidden-GMV creators
+      </label>
+      <button class="btn ghost" onclick="clearAll()" title="Remove every stored creator">Clear stored</button>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+  <div class="sec scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Creator</th>
+          <th>Category</th>
+          <th class="num">Followers</th>
+          <th class="num">GMV</th>
+          <th class="num">GMV / customer</th>
+          <th class="num">Items sold</th>
+          <th class="num">Message</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty">No creators yet — set your filters and hit “Find creators”.</div>
+  </div>
+
+  <details class="sec" id="tpl_sec">
+    <summary class="sec-title" style="margin:0">DM message — edit the draft the DM button copies</summary>
+    <div style="margin-top:14px">
+      <textarea id="tpl" spellcheck="false"></textarea>
+      <div class="row">
+        <button class="btn" onclick="saveTemplate()">Save</button>
+        <button class="btn" onclick="previewTemplate()">Preview on top creator</button>
+        <span class="status" id="tpl_status"></span>
+      </div>
+      <div class="note">
+        Tokens fill in per creator:
+        <code>{nickname}</code> <code>{handle}</code> <code>{category}</code>
+        <code>{followers}</code> <code>{items_sold}</code> <code>{gmv}</code>
+        <code>{gmv_per_customer}</code> <code>{level}</code>.
+      </div>
+      <pre id="tpl_preview" class="preview"></pre>
+    </div>
+  </details>
+
+</div>
+
+<script>
+let current = [];
+
+const fmtNum = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
+                  : n >= 1e3 ? (n / 1e3).toFixed(1) + "K"
+                  : String(n);
+const fmtRm = n => "RM" + n.toLocaleString("en-MY", { maximumFractionDigits: 2 });
+
+async function search() {
+  const body = {
+    category:             document.getElementById("category").value,
+    gmv_bucket:           document.getElementById("gmv_bucket").value,
+    follower_tier:        document.getElementById("follower_tier").value,
+    min_gmv_per_customer: document.getElementById("min_gpc").value,
+    min_items_sold:       document.getElementById("min_items").value,
+    creators_to_reach:    document.getElementById("limit").value,
+    sort:                 document.getElementById("sort").value,
+    include_uncertain:    document.getElementById("incl_uncertain").checked,
+  };
+  const res = await fetch("/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  current = data.creators;
+  syncCategories(data.all_categories || []);
+  render(data);
+  return data;
+}
+
+// Keep the category dropdown populated with whatever categories are in the pool,
+// preserving the current selection.
+function syncCategories(cats) {
+  const sel = document.getElementById("category");
+  const chosen = sel.value;
+  const wanted = ["", ...cats];
+  const have = [...sel.options].map(o => o.value);
+  if (have.length === wanted.length && have.every((v, i) => v === wanted[i])) return;
+  sel.innerHTML = '<option value="">All categories</option>' +
+    cats.map(c => `<option value="${c}">${c}</option>`).join("");
+  sel.value = cats.includes(chosen) ? chosen : "";
+}
+
+function render(data) {
+  const tbody = document.getElementById("rows");
+  const empty = document.getElementById("empty");
+  tbody.innerHTML = "";
+
+  for (const c of current) {
+    const tr = document.createElement("tr");
+    const name = c.profile_url
+      ? `<a href="${c.profile_url}" target="_blank" rel="noopener">@${c.handle}</a>`
+      : "@" + c.handle;
+    // A floored GMV is a lower bound, so it reads "≥" and never as an exact figure.
+    const gmv = c.gmv_is_floor ? "≥" + fmtRm(c.gmv) : fmtRm(c.gmv);
+    const gpc = c.gmv_is_floor ? "≥" + fmtRm(c.gmv_per_customer) : fmtRm(c.gmv_per_customer);
+    const approx = c.gmv_is_floor ? " approx" : "";
+    tr.innerHTML = `
+      <td>${name}${c.nickname ? ` <span class="nick">${c.nickname}</span>` : ""}${
+        c.gmv_is_floor ? '<span class="badge" title="TikTok hides this creator\'s exact GMV — shown as RM10K+. The real figure is higher, so these are lower bounds.">GMV HIDDEN</span>' : ""}</td>
+      <td style="color:var(--muted)">${c.category || "—"}</td>
+      <td class="num">${fmtNum(c.followers)}</td>
+      <td class="num${approx}">${gmv}</td>
+      <td class="num${approx}">${gpc}</td>
+      <td class="num">${c.items_sold.toLocaleString("en-MY")}</td>
+      <td class="num"><button class="btn dm${c.tiktok_user_id ? " ready" : ""}" data-handle="${c.handle}"
+        title="${c.tiktok_user_id ? "Opens the DM chat directly" : "Opens their profile — click Message there (we don't have their DM link yet)"}">Message</button></td>`;
+    tr.querySelector("button.dm").addEventListener("click", () => dm(c));
+    tbody.appendChild(tr);
+  }
+
+  empty.style.display = current.length ? "none" : "block";
+  if (!current.length) {
+    // Distinguish "nothing fetched" from "fetched, but the filters hid them all".
+    empty.innerHTML = data.pool
+      ? `<strong>${data.pool} creators loaded, but none match your filters.</strong><br>
+         Loosen them — e.g. set <em>GMV</em> to “Any” or “RM10,000+”, since your creators
+         have high GMV. Then the matches will appear.`
+      : `No creators yet — set your filters and hit “Find creators”.`;
+  }
+  document.getElementById("status").textContent =
+    `${data.returned} shown · ${data.matched} confirmed`;
+  document.getElementById("pool_meta").textContent = `${data.pool} creators stored`;
+  document.getElementById("note").innerHTML = data.uncertain
+    ? `<strong>${data.uncertain} creator${data.uncertain === 1 ? "" : "s"} can’t be confirmed.</strong>
+       TikTok shows only “RM10K+” for them, so their GMV and GMV/customer are lower
+       bounds — the real figures may be far higher. Listed after the confirmed matches.`
+    : "";
+}
+
+function copyHandles() {
+  if (!current.length) return;
+  navigator.clipboard.writeText(current.map(c => "@" + c.handle).join("\n"));
+  document.getElementById("status").textContent = `Copied ${current.length} handles`;
+}
+
+// ── DM ────────────────────────────────────────────────────────────────────────
+const fmtToken = (c, k) => {
+  switch (k) {
+    case "handle":           return "@" + c.handle;
+    case "nickname":         return c.nickname || "@" + c.handle;
+    case "category":         return (c.category || "").toLowerCase() || "your";
+    case "followers":        return fmtNum(c.followers);
+    case "items_sold":       return c.items_sold.toLocaleString("en-MY");
+    case "gmv":              return (c.gmv_is_floor ? "over " : "") + fmtRm(c.gmv);
+    case "gmv_per_customer": return (c.gmv_is_floor ? "over " : "") + fmtRm(c.gmv_per_customer);
+    case "level":            return "Lv. " + (c.level || "—");
+    default:                 return "{" + k + "}";
+  }
+};
+
+function draftFor(c) {
+  const tpl = document.getElementById("tpl").value;
+  return tpl.replace(/\{(\w+)\}/g, (_, k) => fmtToken(c, k));
+}
+
+async function dm(c) {
+  const status = document.getElementById("status");
+  const btn = document.querySelector(`button.dm[data-handle="${CSS.escape(c.handle)}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "Opening…"; }
+  status.textContent = `Opening @${c.handle}'s DM in the app browser…`;
+
+  // The server drives the app's own browser: resolve the id if needed, open the
+  // chat, type the message. It never sends — you click Send in that window.
+  try {
+    const res = await fetch("/api/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: c.handle, user_id: c.tiktok_user_id || "", message: draftFor(c) }),
+    });
+    const r = await res.json();
+    status.textContent = messageStatusText(c.handle, r);
+    // A freshly resolved id means the button is now "ready" next time.
+    if (r.user_id && !c.tiktok_user_id) c.tiktok_user_id = r.user_id;
+  } catch (e) {
+    status.textContent = "Couldn't reach the app browser — is the server running from the launcher?";
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Message"; }
+  }
+}
+
+function messageStatusText(handle, r) {
+  if (r.error) return `@${handle}: ${r.error}`;
+  switch (r.status) {
+    case "ready":      return `@${handle}'s DM is open with your message — review it and click Send`;
+    case "login":      return `⚠️ The DM browser isn't signed in — click “Log into TikTok (for DMs)” first, then try again`;
+    case "restricted": return `@${handle} isn't accepting this DM (followers-only). Skip them`;
+    case "throttled":  return `TikTok throttled the lookup — wait a moment and try @${handle} again`;
+    case "no_id":      return `Couldn't find @${handle}'s DM link — either the DM browser isn't signed in (use “Log into TikTok”), or they have messaging off`;
+    case "no_compose": return `Opened the chat but couldn't find the message box — tell me if this repeats`;
+    default:           return `@${handle}: ${r.status || "unknown result"}`;
+  }
+}
+
+async function tiktokLogin() {
+  const status = document.getElementById("status");
+  status.textContent = "Opening the DM browser… log into your TikTok DM account in that window";
+  try {
+    await fetch("/api/tiktok_login", { method: "POST" });
+    // Give the window a moment, then confirm whether the login took.
+    setTimeout(async () => {
+      const s = await (await fetch("/api/tiktok_login/state")).json();
+      status.textContent = s.logged_in
+        ? "✓ TikTok DM account connected — Message buttons will open real chats now"
+        : "A TikTok login window is open — sign in there, then click a Message button";
+    }, 4000);
+  } catch (e) {
+    status.textContent = "Couldn't open the DM browser — is the server running from the launcher?";
+  }
+}
+
+async function loadTemplate() {
+  const { dm_template } = await (await fetch("/api/template")).json();
+  document.getElementById("tpl").value = dm_template;
+}
+
+async function saveTemplate() {
+  const dm_template = document.getElementById("tpl").value;
+  await fetch("/api/template", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dm_template }),
+  });
+  const out = document.getElementById("tpl_status");
+  out.textContent = "Saved";
+  setTimeout(() => (out.textContent = ""), 1500);
+}
+
+function previewTemplate() {
+  const out = document.getElementById("tpl_preview");
+  if (!current.length) { out.textContent = "Find some creators first to preview."; return; }
+  out.textContent = draftFor(current[0]);
+}
+
+// Primary flow: fetch fresh from TikTok, then apply the filters and show matches.
+async function findCreators() {
+  const btn = document.getElementById("find_btn");
+  const prog = document.getElementById("progress");
+  const res = await fetch("/api/harvest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      region: document.getElementById("region").value,
+      target: document.getElementById("target").value,
+    }),
+  });
+  const start = await res.json();
+  if (start.error) { showProgress(prog, start.error, "err"); return; }
+
+  btn.disabled = true;
+  btn.textContent = "Searching TikTok…";
+  const labels = {
+    launching:  "Opening the app's Chrome window…",
+    navigating: "Loading TikTok Find creators…",
+    login:      "⚠️ Log into Seller Center in the Chrome window that just opened",
+    waiting:    "Waiting for the creator list…",
+    scrolling:  "Reading creators from TikTok…",
+    done:       "Done",
+  };
+  await new Promise((resolve) => {
+    const poll = setInterval(async () => {
+      const s = await (await fetch("/api/harvest/status")).json();
+      if (s.error) {
+        showProgress(prog, "Couldn't finish: " + s.error, "err");
+      } else {
+        const tone = s.stage === "login" ? "warn" : "run";
+        showProgress(prog, `${labels[s.stage] || s.stage}${s.detail ? " · " + s.detail : ""}`, tone);
+      }
+      if (!s.running) {
+        clearInterval(poll);
+        if (!s.error) showProgress(prog, `✓ Loaded ${s.added} creators from TikTok`, "ok");
+        resolve();
+      }
+    }, 800);
+  });
+  btn.disabled = false;
+  btn.textContent = "🔎 Find creators";
+  // Combine the fetch result with the filter result so the banner never reads
+  // "loaded 12" while the table sits empty — that looked like a lie.
+  const s = await (await fetch("/api/harvest/status")).json();
+  const data = await search();   // apply category / GMV / follower / etc.
+  const added = s.added || 0;
+  if (data.returned > 0) {
+    showProgress(prog,
+      `✓ Fetched ${added} new · showing ${data.returned} of ${data.pool} that match your filters`, "ok");
+  } else {
+    showProgress(prog,
+      `✓ Fetched ${added} new (${data.pool} total loaded), but 0 match your filters — loosen them (try GMV “Any” or “RM10,000+”)`, "warn");
+  }
+}
+
+function showProgress(el, text, tone) {
+  el.textContent = text;
+  el.className = "progress show " + (tone || "");
+}
+
+async function clearAll() {
+  if (!confirm("Remove every stored creator?")) return;
+  await fetch("/api/creators", { method: "DELETE" });
+  search();
+}
+
+async function clearAll() {
+  if (!confirm("Remove every stored creator?")) return;
+  await fetch("/api/creators", { method: "DELETE" });
+  search();
+}
+
+// Re-run the search whenever a dropdown filter changes.
+for (const id of ["category", "gmv_bucket", "follower_tier"]) {
+  document.getElementById(id).addEventListener("change", search);
+}
+
+loadTemplate();
+search();
+</script>
+</body>
+</html>
