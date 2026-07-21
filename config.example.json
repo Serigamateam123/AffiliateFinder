@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to config.json. criteria values are SEED VALUES pending Nurin's real thresholds (spec O2). category_ids is reserved (spec O4) — leave empty.",
+  "criteria": {
+    "min_followers": 5000,
+    "max_followers": null,
+    "min_gmv": 1000,
+    "min_units_sold": 100,
+    "category_ids": []
+  },
+  "want": 60,
+  "region": "MY",
+  "sheet": {
+    "sheet_id": "PASTE_SPREADSHEET_ID_FROM_URL",
+    "outreach_tab": "Outreach",
+    "handle_column": "B",
+    "handle_header": "Handle",
+    "service_account_file": "service_account.json"
+  }
+}
