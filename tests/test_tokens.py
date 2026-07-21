@@ -146,3 +146,16 @@ def test_call_tiktok_non_json_response_raises_apierror(tmp_path, monkeypatch):
     monkeypatch.setattr(t.requests, "request", lambda *a, **kw: NonJsonResp())
     with pytest.raises(t.ApiError, match="non-JSON"):
         t.call_tiktok("POST", t.SEARCH_PATH, body={})
+
+
+def test_refresh_non_json_response_is_auth_error(tmp_path, monkeypatch):
+    seed(tmp_path, monkeypatch)
+
+    class BadJsonResp:
+        status_code = 200
+        def json(self):
+            raise ValueError("No JSON object could be decoded")
+
+    monkeypatch.setattr(t.requests, "get", lambda *a, **kw: BadJsonResp())
+    with pytest.raises(t.AuthError, match="non-JSON"):
+        t.get_access_token()

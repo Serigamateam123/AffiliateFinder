@@ -106,7 +106,10 @@ def _refresh(t):
         raise AuthError(f"token refresh failed: network error ({e})") from e
     if r.status_code != 200:
         raise AuthError(f"token refresh failed: HTTP {r.status_code}")
-    j = r.json()
+    try:
+        j = r.json()
+    except ValueError as e:
+        raise AuthError(f"token refresh returned a non-JSON response: {e}") from e
     d = j.get("data") or {}
     if j.get("code") != 0 or not d.get("access_token") or not d.get("refresh_token"):
         raise AuthError(

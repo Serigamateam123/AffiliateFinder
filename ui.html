@@ -321,13 +321,13 @@ async function search() {
     showProgress(document.getElementById("progress"),
       "Couldn't load creators: server returned an unreadable response", "err");
     current = [];
-    return { creators: [], all_categories: [], matched: 0, uncertain: 0, returned: 0, pool: 0 };
+    return null;
   }
   if (!res.ok || data.error) {
     showProgress(document.getElementById("progress"),
       "Couldn't load creators: " + (data.error || ("HTTP " + res.status)), "err");
     current = [];
-    return { creators: [], all_categories: [], matched: 0, uncertain: 0, returned: 0, pool: 0 };
+    return null;
   }
   current = data.creators;
   syncCategories(data.all_categories || []);
@@ -547,6 +547,7 @@ async function findCreators() {
     const r = await res.json();
     if (r.error) { showProgress(prog, "Couldn't discover: " + r.error, "err"); return; }
     const data = await search();
+    if (!data) return;
     const summary = `✓ ${r.added} new · ${r.skipped_contacted} already contacted · ` +
                     `${r.skipped_known} already in list · ${r.pages_used} page${r.pages_used === 1 ? "" : "s"}`;
     if (r.added === 0 && r.exhausted) {
