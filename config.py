@@ -23,9 +23,13 @@ def load():
         cfg = json.loads(CONFIG_JSON.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         raise ConfigError(f"config.json is unreadable: {e}") from e
+    if not isinstance(cfg, dict):
+        raise ConfigError("config.json must be a JSON object — compare with config.example.json")
     for k in REQUIRED_TOP:
         if k not in cfg:
             raise ConfigError(f"config.json is missing '{k}' — compare with config.example.json")
+    if not isinstance(cfg["sheet"], dict):
+        raise ConfigError("config.json 'sheet' must be an object — compare with config.example.json")
     for k in REQUIRED_SHEET:
         if not cfg["sheet"].get(k):
             raise ConfigError(f"config.json sheet.{k} is missing or empty")

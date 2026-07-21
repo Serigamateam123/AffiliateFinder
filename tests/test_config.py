@@ -35,3 +35,17 @@ def test_roundtrip():
     cfg["want"] = 100
     config.save(cfg)
     assert config.load()["want"] == 100
+
+
+def test_non_dict_config_is_loud():
+    config.CONFIG_JSON.write_text("[1, 2, 3]")
+    with pytest.raises(config.ConfigError, match="JSON object"):
+        config.load()
+
+
+def test_null_sheet_is_loud():
+    cfg = good()
+    cfg["sheet"] = None
+    config.CONFIG_JSON.write_text(json.dumps(cfg))
+    with pytest.raises(config.ConfigError, match="sheet"):
+        config.load()
