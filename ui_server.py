@@ -11,9 +11,10 @@ the row shape the scraper has to produce.
 import csv, io, json, os, threading, webbrowser
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
+import store
+from store import load_creators, save_creators
 
 APP_DIR      = Path(__file__).parent
-CREATORS_JSON = APP_DIR / "creators.json"   # persisted in the project folder, never /tmp
 SETTINGS_JSON = APP_DIR / "settings.json"
 PORT          = int(os.environ.get("PORT", 7374))
 
@@ -52,34 +53,6 @@ DATA_CONTRACT = ("handle", "nickname", "followers", "gmv", "gmv_is_floor",
                  "engagement_rate", "profile_url", "fetched_at")
 
 app = Flask(__name__, static_folder=None)
-
-
-@app.after_request
-def allow_scraper_origin(resp):
-    """The harvest script runs inside the Seller Center page and posts here.
-
-    Scoped to that one origin rather than "*" so a stray tab can't push junk
-    into the store while this is running.
-    """
-    if request.headers.get("Origin") == "https://affiliate.tiktok.com":
-        resp.headers["Access-Control-Allow-Origin"] = "https://affiliate.tiktok.com"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-    return resp
-
-
-# ── Store ─────────────────────────────────────────────────────────────────────
-def load_creators():
-    if not CREATORS_JSON.exists():
-        return []
-    try:
-        return json.loads(CREATORS_JSON.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def save_creators(rows):
-    CREATORS_JSON.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
 def _num(value, cast, default=0):
@@ -196,6 +169,11 @@ def load_template():
     return DEFAULT_TEMPLATE
 
 
+@app.errorhandler(store.StoreError)
+def store_error(e):
+    return jsonify({"error": str(e)}), 500
+
+
 @app.get("/")
 def index():
     return send_from_directory(APP_DIR, "ui.html")
@@ -227,28 +205,11 @@ def put_creators():
     incoming = payload if isinstance(payload, list) else payload.get("creators", [])
     if not isinstance(incoming, list):
         return jsonify({"error": "expected a list of creator rows"}), 400
-
-    existing = {r["handle"]: r for r in load_creators()}
-    added = updated = skipped = 0
-    for raw in incoming:
-        row = normalize(raw)
-        if not row["handle"]:
-            skipped += 1
-            continue
-        if row["handle"] in existing:
-            # A re-harvest from Find creators has no tiktok_user_id, so don't let
-            # its blank clobber an id we already resolved from the profile.
-            if not row["tiktok_user_id"]:
-                row.pop("tiktok_user_id")
-            existing[row["handle"]].update(row)
-            updated += 1
-        else:
-            existing[row["handle"]] = row
-            added += 1
-
-    save_creators(list(existing.values()))
-    return jsonify({"added": added, "updated": updated,
-                    "skipped": skipped, "total": len(existing)})
+    rows = [normalize(r) for r in incoming]
+    skipped = sum(1 for r in rows if not r["handle"])
+    result = store.upsert_creators([r for r in rows if r["handle"]])
+    return jsonify({"added": result["added"], "updated": result["updated"],
+                    "skipped": skipped, "total": result["total"]})
 
 
 @app.post("/api/import_csv")
@@ -287,14 +248,7 @@ def _get_messenger():
 
 def _cache_user_id(handle, user_id):
     """Persist a freshly resolved id so the next click is instant."""
-    if not user_id:
-        return
-    rows = load_creators()
-    for row in rows:
-        if row["handle"] == str(handle).lstrip("@"):
-            row["tiktok_user_id"] = user_id
-            save_creators(rows)
-            return
+    store.set_user_id(handle, user_id)
 
 
 @app.post("/api/message")
