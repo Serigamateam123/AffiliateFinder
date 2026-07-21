@@ -140,7 +140,11 @@ def call_tiktok(method, path, query=None, body=None, _retry_auth=True):
         # refresh + retry. 105005 is a SCOPE gap — refreshing can't fix it.
         if 105000 <= code < 106000 and code != 105005 and _retry_auth:
             with _refresh_lock:
-                _refresh(load_tokens())
+                current = load_tokens()
+                # Only rotate if nobody else already did: the refresh token is
+                # single-use, and N concurrent 105xxx failures need ONE rotation.
+                if current.get("access_token") == t["access_token"]:
+                    _refresh(current)
             return call_tiktok(method, path, query, body, _retry_auth=False)
         raise ApiError(code, j.get("message", ""), j.get("request_id", ""))
     raise ApiError(-1, f"gave up after retries (last HTTP {resp.status_code})")

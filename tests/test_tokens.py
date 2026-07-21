@@ -82,6 +82,37 @@ def test_call_tiktok_attaches_cipher_and_checks_envelope(tmp_path, monkeypatch):
     assert seen["headers"]["x-tts-access-token"] == "old"
 
 
+def test_forced_refresh_is_deduplicated_across_threads(tmp_path, monkeypatch):
+    seed(tmp_path, monkeypatch, expires_in=9999)      # locally fresh, server-rejected
+    refreshes = []
+
+    def fake_get(*a, **kw):                            # the refresh endpoint
+        refreshes.append(1)
+        return FakeResp({"code": 0, "data": {"access_token": "new",
+                         "access_token_expire_in": 7200, "refresh_token": "r1"}})
+
+    def fake_request(method, url, params=None, headers=None, data=None, timeout=None):
+        if headers["x-tts-access-token"] == "old":     # server rejects the old token
+            return FakeResp({"code": 105001, "message": "token rejected"})
+        return FakeResp({"code": 0, "data": {"creators": []}})
+
+    monkeypatch.setattr(t.requests, "get", fake_get)
+    monkeypatch.setattr(t.requests, "request", fake_request)
+
+    results, errors = [], []
+    def worker():
+        try:
+            results.append(t.call_tiktok("POST", t.SEARCH_PATH, body={}))
+        except Exception as e:                         # pragma: no cover - failure detail
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    [x.start() for x in threads]; [x.join() for x in threads]
+    assert errors == []
+    assert len(results) == 4
+    assert len(refreshes) == 1                         # ONE rotation, not four
+
+
 def test_call_tiktok_raises_apierror_with_code(tmp_path, monkeypatch):
     seed(tmp_path, monkeypatch, expires_in=9999)
     monkeypatch.setattr(t.requests, "request", lambda *a, **kw: FakeResp(
