@@ -1,4 +1,5 @@
 """Creator discovery: official search API + sheet/store dedupe (spec §6)."""
+import re
 import time
 from datetime import datetime, timezone
 
@@ -81,14 +82,42 @@ def build_search_body(criteria, search_key=""):
     return body
 
 
+_FLOOR_RE = re.compile(r"([\d.]+)\s*([KkMm]?)")
+
+
+def bucket_floor(c):
+    """Best-available GMV bucket floor for a creator row, or None.
+
+    Prefers the numeric minimum_amount; falls back to parsing the
+    formatted_range display string ("RM10K+" -> 10000.0, "RM1K-RM10K" ->
+    1000.0 — the FIRST number is the lower bound). None means the row
+    carries no bucket evidence at all.
+    """
+    gr = c.get("gmv_range") or {}
+    if gr.get("minimum_amount") is not None:
+        try:
+            return float(gr["minimum_amount"])
+        except (TypeError, ValueError):
+            pass
+    m = _FLOOR_RE.search(str(gr.get("formatted_range") or "").replace(",", ""))
+    if not m:
+        return None
+    return float(m.group(1)) * {"k": 1_000, "m": 1_000_000}.get(m.group(2).lower(), 1)
+
+
 def check_gmv_conformance(creators, requested_buckets):
     allowed_min = min(lo for name, lo, hi in GMV_BUCKETS if name in requested_buckets)
     for c in creators:
-        got = float((c.get("gmv_range") or {}).get("minimum_amount") or 0)
-        if got < allowed_min:
+        floor = bucket_floor(c)
+        if floor is None:
+            raise ConformanceError(
+                "TikTok returned a creator with no GMV bucket information — cannot "
+                "verify the gmv_ranges filter was applied. Aborting rather than "
+                "showing possibly-unfiltered results (spec F2).")
+        if floor < allowed_min:
             raise ConformanceError(
                 "TikTok returned a creator below the requested GMV bucket "
-                f"(bucket floor {got} < requested {allowed_min}) — the gmv_ranges filter was "
+                f"(bucket floor {floor} < requested {allowed_min}) — the gmv_ranges filter was "
                 "not applied. Aborting rather than showing unfiltered results (spec F2).")
 
 
@@ -98,16 +127,20 @@ def norm_handle(h):
 
 def to_store_row(c, now_iso):
     handle = norm_handle(c.get("username"))
+    exact = (c.get("gmv") or {}).get("amount")
+    # exact — the API returns the real figure for most creators even where the
+    # UI shows "RM10K+", but HIDES it for some (live finding 2026-07-21): those
+    # rows carry only the bucket, so we store the bucket floor with
+    # gmv_is_floor=True (same convention as legacy scraped rows).
+    # Currency labels are unreliable (USD label on RM values); amounts are
+    # treated as RM per spec §5 Gotcha 2 (selection_region MY).
     return {
         "handle": handle,
         "nickname": str(c.get("nickname") or ""),
         "creator_open_id": str(c.get("creator_open_id") or ""),
         "followers": int(c.get("follower_count") or 0),
-        # exact — the API returns the real figure even where the UI shows "RM10K+".
-        # Currency labels in responses are unreliable (USD label on RM values);
-        # amounts are treated as RM per spec §5 Gotcha 2 (selection_region MY).
-        "gmv": float((c.get("gmv") or {}).get("amount") or 0),
-        "gmv_is_floor": False,
+        "gmv": float(exact) if exact is not None else (bucket_floor(c) or 0.0),
+        "gmv_is_floor": exact is None,
         "video_gmv": float((c.get("video_gmv") or {}).get("amount") or 0),
         "live_gmv": float((c.get("live_gmv") or {}).get("amount") or 0),
         "items_sold": None,          # not in the search response; filtered at source

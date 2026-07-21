@@ -24,6 +24,16 @@ def api_creator(handle, followers=5000, gmv=2000.0, floor_min="1000"):
             "category_ids": ["601450"], "selection_region": "MY"}
 
 
+def api_creator_floor_only(handle, followers=5000):
+    """Shape B (live 2026-07-21): exact GMV hidden — bucket string only."""
+    return {"username": handle, "nickname": "N " + handle, "creator_open_id": "id_" + handle,
+            "follower_count": followers, "gmv": None,
+            "gmv_range": {"formatted_range": "RM10K+"},
+            "video_gmv": None, "live_gmv": None,
+            "avg_ec_video_view_count": 60, "avg_ec_live_uv": 10,
+            "category_ids": ["601450"], "selection_region": "MY"}
+
+
 def test_buckets_at_least():
     assert d.buckets_at_least(d.GMV_BUCKETS, 0) == [
         "GMV_RANGE_0_100", "GMV_RANGE_100_1000", "GMV_RANGE_1000_10000",
@@ -71,6 +81,28 @@ def test_to_store_row_shape():
     assert row["gmv_is_floor"] is False and row["items_sold"] is None
     assert row["source"] == "api" and row["creator_open_id"] == "id_Sha"
     assert row["profile_url"] == "https://www.tiktok.com/@sha"
+
+
+def test_bucket_floor_parses_all_evidence_shapes():
+    assert d.bucket_floor(api_creator("a", floor_min="10000")) == 10000.0
+    assert d.bucket_floor(api_creator_floor_only("a")) == 10000.0
+    assert d.bucket_floor({"gmv_range": {"formatted_range": "RM1K-RM10K"}}) == 1000.0
+    assert d.bucket_floor({"gmv_range": {}}) is None
+    assert d.bucket_floor({}) is None
+
+
+def test_conformance_accepts_floor_only_rows_and_rejects_no_evidence():
+    d.check_gmv_conformance([api_creator_floor_only("a")],
+                            ["GMV_RANGE_1000_10000", "GMV_RANGE_10000_AND_ABOVE"])  # no raise
+    with pytest.raises(d.ConformanceError, match="no GMV bucket information"):
+        d.check_gmv_conformance([{"username": "x"}],
+                                ["GMV_RANGE_1000_10000", "GMV_RANGE_10000_AND_ABOVE"])
+
+
+def test_floor_only_row_stored_as_floor_and_qualifies():
+    row = d.to_store_row(api_creator_floor_only("Sha"), "2026-07-21T00:00:00+00:00")
+    assert row["gmv"] == 10000.0 and row["gmv_is_floor"] is True
+    assert d._qualifies(row, {"min_followers": 1000, "max_followers": None, "min_gmv": 1000})
 
 
 def fake_pages(pages):

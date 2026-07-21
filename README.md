@@ -22,8 +22,10 @@ This version calls TikTok's **official creator-search API** directly
 - **Source filtering** — GMV and units-sold minimums are sent to TikTok as
   part of the search request, so the API only returns creators that already
   clear the bar, instead of the app fetching everything and filtering after.
-- **Exact GMV** — the API returns the real number even for creators the old
-  scraped UI showed as "RM10K+". No more floors, no more guessing.
+- **Mostly-exact GMV** — the API returns the real number for most creators,
+  including many the old scraped UI showed only as "RM10K+". For the rest
+  (roughly half of live rows) TikTok still hides the exact figure; those show
+  as a "≥" floor, same as before.
 - **No DOM fragility** — discovery no longer depends on Affiliate Center's
   page layout or a signed-in browser session at all.
 

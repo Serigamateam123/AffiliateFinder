@@ -184,6 +184,14 @@ checks compare against the **bucket** (`gmv_range`); exact-threshold filtering u
 RM-bucketed values) — treat amounts as RM (`selection_region` MY) and record this
 assumption in the code.
 
+**⚠ Gotcha 3 — exact GMV is hidden for a subset of creators (live finding
+2026-07-21).** Roughly half of live rows carry `gmv_range` without
+`minimum_amount` (display string only, e.g. "RM10K+") and `gmv: null`. The
+client stores those rows at the bucket floor with `gmv_is_floor: true` (same
+convention as legacy scraped rows) and conformance-checks via the parsed
+formatted_range. G3 ("the uncertain bucket disappears") holds only for the
+disclosed subset.
+
 ## 6. Discovery flow (on-demand, in AffiliateFinder)
 
 Triggered by the **Discover** button (§8), which shows a criteria form pre-filled from
