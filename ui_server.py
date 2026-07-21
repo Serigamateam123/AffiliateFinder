@@ -11,7 +11,11 @@ the row shape the scraper has to produce.
 import csv, io, json, os, threading, webbrowser
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
+import config
+import discovery
+import sheet
 import store
+import tiktok_api
 from store import load_creators, save_creators
 
 APP_DIR      = Path(__file__).parent
@@ -77,9 +81,12 @@ def _num(value, cast, default=0):
 
 
 def _is_floor(row):
-    """Trust an explicit flag from the scraper; otherwise sniff a trailing '+'."""
+    """Trust an explicit flag from the source; otherwise sniff a trailing '+'."""
     if "gmv_is_floor" in row:
-        return bool(row["gmv_is_floor"])
+        v = row["gmv_is_floor"]
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return bool(v)
     return "+" in str(row.get("gmv", ""))
 
 
@@ -116,13 +123,17 @@ def gmv_per_customer(row):
     Creators with no sales return 0.0 rather than dividing by zero, so they sort
     last.
     """
-    if not row["items_sold"]:
+    items = row.get("items_sold")
+    if items is None:
+        return None          # API rows: items filtered at source, count unknown
+    if not items:
         return 0.0
-    return row["gmv"] / row["items_sold"]
+    return row["gmv"] / items
 
 
 def decorate(row):
-    return {**row, "gmv_per_customer": round(gmv_per_customer(row), 2)}
+    gpc = gmv_per_customer(row)
+    return {**row, "gmv_per_customer": None if gpc is None else round(gpc, 2)}
 
 
 SCORED_METRICS = ("gmv", "gmv_per_customer", "followers", "items_sold")
@@ -150,7 +161,7 @@ def add_balanced_score(rows):
     """
     if not rows:
         return rows
-    columns = {k: _percentiles([r[k] for r in rows]) for k in SCORED_METRICS}
+    columns = {k: _percentiles([r.get(k) or 0 for r in rows]) for k in SCORED_METRICS}
     for i, row in enumerate(rows):
         row["score"] = round(
             sum(columns[k][i] for k in SCORED_METRICS) / len(SCORED_METRICS), 4
@@ -322,7 +333,8 @@ def classify(row, gmv_range, follower_range, min_items, min_gmv_pc, category):
         return "reject"
     if follower_range and not _in_range(row["followers"], *follower_range):
         return "reject"
-    if row["items_sold"] < min_items:
+    items = row.get("items_sold")
+    if items is not None and items < min_items:
         return "reject"
 
     if gmv_range:
@@ -334,7 +346,8 @@ def classify(row, gmv_range, follower_range, min_items, min_gmv_pc, category):
         elif not _in_range(row["gmv"], lo, hi):
             return "reject"
 
-    if row["gmv_per_customer"] >= min_gmv_pc:
+    gpc = row["gmv_per_customer"]
+    if gpc is None or gpc >= min_gmv_pc:
         return "match"
     if row["gmv_is_floor"]:
         return "uncertain"   # its true per-customer figure could clear the bar
@@ -379,6 +392,48 @@ def search():
         "all_categories": sorted({r["category"] for r in pool if r["category"]}),
         "creators": ordered[:limit],
     })
+
+
+# ── Discovery (official creator-search API — spec §6/§9) ────────────────────
+@app.get("/api/discovery_config")
+def get_discovery_config():
+    try:
+        cfg = config.load()
+    except config.ConfigError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"criteria": cfg["criteria"], "want": cfg["want"]})
+
+
+@app.post("/api/discovery_config")
+def set_discovery_config():
+    body = request.get_json(silent=True) or {}
+    try:
+        cfg = config.load()
+        criteria = discovery.validate_criteria(body.get("criteria") or {})
+        want = body.get("want")
+        if isinstance(want, bool) or not isinstance(want, int) or not 1 <= want <= 200:
+            raise discovery.CriteriaError(f"want must be an integer 1-200 (got {want!r})")
+        cfg["criteria"], cfg["want"] = {**criteria, "category_ids": []}, want
+        config.save(cfg)
+    except (config.ConfigError, discovery.CriteriaError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"criteria": cfg["criteria"], "want": want})
+
+
+@app.post("/api/discover")
+def api_discover():
+    body = request.get_json(silent=True) or {}
+    try:
+        cfg = config.load()
+        criteria = {**cfg["criteria"], **(body.get("criteria") or {})}
+        want = body.get("want", cfg["want"])
+        result = discovery.run_discovery(criteria, want)
+    except discovery.CriteriaError as e:
+        return jsonify({"error": str(e)}), 400
+    except (config.ConfigError, sheet.SheetError, discovery.ConformanceError,
+            tiktok_api.AuthError, tiktok_api.ApiError, store.StoreError) as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify(result)
 
 
 # ── Harvest ───────────────────────────────────────────────────────────────────
