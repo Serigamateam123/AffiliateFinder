@@ -215,7 +215,7 @@ something that needs J.
 | `token refresh rejected` | TikTok rejected the saved refresh token (it expired, or was consumed by another run). | J — re-run the §3 ceremony from step 2. |
 | `PERSISTING ROTATED TOKENS FAILED` | TikTok issued a new token but this machine couldn't save it to disk (disk full, permissions, etc). The credential TikTok just issued is now the **only** valid one. | J — fix the disk problem, then re-run the §3 ceremony. |
 | `expected header` (at the top of a sheet range) | `config.json`'s `sheet.outreach_tab` / `handle_column` / `handle_header` don't point at the column you think they do. | Nurin — fix the tab/column/header values in `config.json` (§4). |
-| `0 contacted handles` / `refusing to treat it as empty` (sheet) | The configured column looks empty — almost certainly the wrong column, not an actually-empty sheet. | Nurin — fix the tab/column in `config.json` (§4). |
+| `0 contacted handles` / `refusing to run discovery without a dedupe source` (sheet) | The configured column looks empty — almost certainly the wrong column, not an actually-empty sheet. | Nurin — fix the tab/column in `config.json` (§4). |
 | `TikTok error 45101004` | Daily API quota reached. | Nobody — just try again tomorrow. |
 | `filter was not applied` | TikTok's search results didn't respect the GMV filter this run — the app aborts rather than show unfiltered results. This means TikTok changed how the API behaves. | Stop and tell J — this needs a code fix, not a config fix. |
 | `creators.json is unreadable` / `refusing to treat it as empty` (store) | The local creator store file is corrupted. | Stop, **do not delete `creators.json`**, tell J. |
