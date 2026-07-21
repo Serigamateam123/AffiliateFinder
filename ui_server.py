@@ -3,10 +3,10 @@ Affiliate creator finder — local dashboard
 Run: python ui_server.py
 Opens at: http://localhost:7374
 
-Creator rows are scraped out of TikTok Seller Center (Affiliate > Find creators)
-and land here via POST /api/creators. This server never touches TikTok itself —
-it owns the store, the filtering, and the ranking. See DATA_CONTRACT below for
-the row shape the scraper has to produce.
+Creator rows come from TikTok's official creator-search API via POST /api/discover
+(see discovery.py), which also upserts them via POST /api/creators. This server
+owns the store, the filtering, and the ranking. See DATA_CONTRACT below for the
+row shape.
 """
 import csv, io, json, os, threading, webbrowser
 from pathlib import Path
@@ -434,52 +434,6 @@ def api_discover():
             tiktok_api.AuthError, tiktok_api.ApiError, store.StoreError) as e:
         return jsonify({"error": str(e)}), 502
     return jsonify(result)
-
-
-# ── Harvest ───────────────────────────────────────────────────────────────────
-# Scraping takes ~30-60s and opens a Chrome window, so it runs on a worker
-# thread and the UI polls for progress rather than holding a request open.
-_harvest = {"running": False, "stage": "idle", "detail": "", "error": None, "added": 0, "updated": 0}
-_harvest_lock = threading.Lock()
-
-
-def _run_harvest(region, target):
-    from scraper import harvest as do_harvest   # imported late: Chrome only spins up on demand
-
-    def progress(stage, detail):
-        _harvest.update(stage=stage, detail=detail)
-
-    try:
-        rows = do_harvest(region=region, target=target, on_progress=progress)
-        with app.test_request_context(json={"creators": rows}):
-            result = put_creators().get_json()
-        _harvest.update(stage="done", detail=f"{len(rows)} creators",
-                        added=result["added"], updated=result["updated"], error=None)
-    except Exception as exc:
-        _harvest.update(stage="error", detail="", error=str(exc))
-    finally:
-        _harvest["running"] = False
-
-
-@app.post("/api/harvest")
-def start_harvest():
-    q = request.get_json(silent=True) or {}
-    with _harvest_lock:
-        if _harvest["running"]:
-            return jsonify({"error": "A harvest is already running"}), 409
-        _harvest.update(running=True, stage="starting", detail="", error=None,
-                        added=0, updated=0)
-    threading.Thread(
-        target=_run_harvest,
-        args=(q.get("region", "MY"), _num(q.get("target"), int) or 120),
-        daemon=True,
-    ).start()
-    return jsonify({"started": True})
-
-
-@app.get("/api/harvest/status")
-def harvest_status():
-    return jsonify(_harvest)
 
 
 if __name__ == "__main__":
