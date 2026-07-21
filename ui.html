@@ -283,6 +283,9 @@ summary:hover{color:var(--text)}
 <script>
 let current = [];
 
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+
 const fmtNum = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
                   : n >= 1e3 ? (n / 1e3).toFixed(1) + "K"
                   : String(n);
@@ -320,7 +323,7 @@ function syncCategories(cats) {
   const have = [...sel.options].map(o => o.value);
   if (have.length === wanted.length && have.every((v, i) => v === wanted[i])) return;
   sel.innerHTML = '<option value="">All categories</option>' +
-    cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
   sel.value = cats.includes(chosen) ? chosen : "";
 }
 
@@ -332,21 +335,21 @@ function render(data) {
   for (const c of current) {
     const tr = document.createElement("tr");
     const name = c.profile_url
-      ? `<a href="${c.profile_url}" target="_blank" rel="noopener">@${c.handle}</a>`
-      : "@" + c.handle;
+      ? `<a href="${esc(c.profile_url)}" target="_blank" rel="noopener">@${esc(c.handle)}</a>`
+      : "@" + esc(c.handle);
     // A floored GMV is a lower bound, so it reads "≥" and never as an exact figure.
     const gmv = c.gmv_is_floor ? "≥" + fmtRm(c.gmv) : fmtRm(c.gmv);
     const gpc = c.gmv_is_floor ? "≥" + fmtRm(c.gmv_per_customer) : fmtRm(c.gmv_per_customer);
     const approx = c.gmv_is_floor ? " approx" : "";
     tr.innerHTML = `
-      <td>${name}${c.nickname ? ` <span class="nick">${c.nickname}</span>` : ""}${
+      <td>${name}${c.nickname ? ` <span class="nick">${esc(c.nickname)}</span>` : ""}${
         c.gmv_is_floor ? '<span class="badge" title="TikTok hides this creator\'s exact GMV — shown as RM10K+. The real figure is higher, so these are lower bounds.">GMV HIDDEN</span>' : ""}</td>
-      <td style="color:var(--muted)">${c.category || "—"}</td>
+      <td style="color:var(--muted)">${esc(c.category) || "—"}</td>
       <td class="num">${fmtNum(c.followers)}</td>
       <td class="num${approx}">${gmv}</td>
       <td class="num${approx}">${gpc}</td>
       <td class="num">${c.items_sold.toLocaleString("en-MY")}</td>
-      <td class="num"><button class="btn dm${c.tiktok_user_id ? " ready" : ""}" data-handle="${c.handle}"
+      <td class="num"><button class="btn dm${c.tiktok_user_id ? " ready" : ""}" data-handle="${esc(c.handle)}"
         title="${c.tiktok_user_id ? "Opens the DM chat directly" : "Opens their profile — click Message there (we don't have their DM link yet)"}">Message</button></td>`;
     tr.querySelector("button.dm").addEventListener("click", () => dm(c));
     tbody.appendChild(tr);
@@ -535,12 +538,6 @@ async function findCreators() {
 function showProgress(el, text, tone) {
   el.textContent = text;
   el.className = "progress show " + (tone || "");
-}
-
-async function clearAll() {
-  if (!confirm("Remove every stored creator?")) return;
-  await fetch("/api/creators", { method: "DELETE" });
-  search();
 }
 
 async function clearAll() {
