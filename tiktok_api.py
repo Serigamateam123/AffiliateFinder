@@ -51,3 +51,103 @@ def sign(app_secret, path, query, body=""):
 def resolve_expiry(expire_in, now=None):
     now = time.time() if now is None else now
     return float(expire_in) if expire_in >= _ABS_EPOCH_THRESHOLD else now + float(expire_in)
+
+
+_refresh_lock = threading.Lock()
+
+
+def load_tokens():
+    if not TOKENS_JSON.exists():
+        raise AuthError(f"tokens.json is missing — {BOOTSTRAP_HINT}")
+    try:
+        return json.loads(TOKENS_JSON.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        raise AuthError(f"tokens.json is unreadable ({e}) — {BOOTSTRAP_HINT}") from e
+
+
+def save_tokens(t):
+    tmp = TOKENS_JSON.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps(t, indent=2), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, TOKENS_JSON)
+    except OSError as e:
+        raise AuthError(
+            "PERSISTING ROTATED TOKENS FAILED — the credential TikTok just issued is "
+            "single-use and is now the ONLY valid one. Fix the disk problem, then "
+            f"re-bootstrap: {BOOTSTRAP_HINT}. ({e})") from e
+
+
+def _fresh(t):
+    return t.get("access_token") and t.get("access_token_expires_at", 0) > time.time() + REFRESH_WINDOW_SEC
+
+
+def get_access_token():
+    t = load_tokens()
+    if _fresh(t):
+        return t
+    with _refresh_lock:
+        t = load_tokens()          # another thread may have refreshed while we waited
+        if _fresh(t):
+            return t
+        return _refresh(t)
+
+
+def _refresh(t):
+    r = requests.get(f"{AUTH_HOST}/api/v2/token/refresh", params={
+        "app_key": t["app_key"], "app_secret": t["app_secret"],
+        "refresh_token": t["refresh_token"], "grant_type": "refresh_token",
+    }, timeout=30)
+    if r.status_code != 200:
+        raise AuthError(f"token refresh failed: HTTP {r.status_code}")
+    j = r.json()
+    d = j.get("data") or {}
+    if j.get("code") != 0 or not d.get("access_token") or not d.get("refresh_token"):
+        raise AuthError(
+            f"token refresh rejected (code={j.get('code')}: {j.get('message', '')}) — "
+            f"if the refresh token expired or was consumed elsewhere, {BOOTSTRAP_HINT}")
+    t = {**t,
+         "access_token": d["access_token"],
+         "access_token_expires_at": resolve_expiry(d.get("access_token_expire_in", 6 * 3600)),
+         "refresh_token": d["refresh_token"],
+         "refresh_token_expires_at": resolve_expiry(d.get("refresh_token_expire_in", 365 * 24 * 3600))}
+    save_tokens(t)                 # atomic, BEFORE the new token is used (spec F7)
+    return t
+
+
+def call_tiktok(method, path, query=None, body=None, _retry_auth=True):
+    t = get_access_token()
+    q = {"app_key": t["app_key"], "timestamp": int(time.time()), **(query or {})}
+    if t.get("shop_cipher") and not path.startswith("/authorization"):
+        q["shop_cipher"] = t["shop_cipher"]
+    body_str = json.dumps(body) if (method != "GET" and body is not None) else ""
+    q["sign"] = sign(t["app_secret"], path, q, body_str)
+
+    resp = None
+    for attempt in range(3):
+        resp = requests.request(method, f"{BASE_URL}{path}", params=q,
+                                headers={"x-tts-access-token": t["access_token"],
+                                         "content-type": "application/json"},
+                                data=body_str or None, timeout=30)
+        if resp.status_code == 429 or resp.status_code >= 500:
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        j = resp.json()
+        if j.get("code") == 0:
+            return j.get("data") or {}
+        code = j.get("code", -1)
+        # 105xxx = auth-error domain: token rejected server-side. Force ONE
+        # refresh + retry. 105005 is a SCOPE gap — refreshing can't fix it.
+        if 105000 <= code < 106000 and code != 105005 and _retry_auth:
+            with _refresh_lock:
+                _refresh(load_tokens())
+            return call_tiktok(method, path, query, body, _retry_auth=False)
+        raise ApiError(code, j.get("message", ""), j.get("request_id", ""))
+    raise ApiError(-1, f"gave up after retries (last HTTP {resp.status_code})")
+
+
+def search_creators_page(body, page_token=""):
+    query = {"page_size": 20}
+    if page_token:
+        query["page_token"] = page_token
+    return call_tiktok("POST", SEARCH_PATH, query=query, body=body)
