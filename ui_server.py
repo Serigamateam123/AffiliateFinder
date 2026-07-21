@@ -3,17 +3,23 @@ Affiliate creator finder — local dashboard
 Run: python ui_server.py
 Opens at: http://localhost:7374
 
-Creator rows are scraped out of TikTok Seller Center (Affiliate > Find creators)
-and land here via POST /api/creators. This server never touches TikTok itself —
-it owns the store, the filtering, and the ranking. See DATA_CONTRACT below for
-the row shape the scraper has to produce.
+Creator rows come primarily from TikTok's official creator-search API via
+POST /api/discover (see discovery.py), which also upserts them via
+POST /api/creators. The CSV-import path (/api/import_csv) still accepts
+scraped exports for hand-curated or legacy data. This server owns the store,
+the filtering, and the ranking. See DATA_CONTRACT below for the row shape.
 """
 import csv, io, json, os, threading, webbrowser
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
+import config
+import discovery
+import sheet
+import store
+import tiktok_api
+from store import load_creators, save_creators
 
 APP_DIR      = Path(__file__).parent
-CREATORS_JSON = APP_DIR / "creators.json"   # persisted in the project folder, never /tmp
 SETTINGS_JSON = APP_DIR / "settings.json"
 PORT          = int(os.environ.get("PORT", 7374))
 
@@ -32,7 +38,7 @@ DEFAULT_TEMPLATE = (
 )
 
 # ── Data contract ─────────────────────────────────────────────────────────────
-# One creator row, as scraped from Affiliate Center → Find creators (MY).
+# One creator row, from TikTok's creator-search API (or a scraped CSV import).
 #   handle           str   unique key, used for upsert
 #   nickname         str   display name
 #   followers        int
@@ -52,34 +58,6 @@ DATA_CONTRACT = ("handle", "nickname", "followers", "gmv", "gmv_is_floor",
                  "engagement_rate", "profile_url", "fetched_at")
 
 app = Flask(__name__, static_folder=None)
-
-
-@app.after_request
-def allow_scraper_origin(resp):
-    """The harvest script runs inside the Seller Center page and posts here.
-
-    Scoped to that one origin rather than "*" so a stray tab can't push junk
-    into the store while this is running.
-    """
-    if request.headers.get("Origin") == "https://affiliate.tiktok.com":
-        resp.headers["Access-Control-Allow-Origin"] = "https://affiliate.tiktok.com"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-    return resp
-
-
-# ── Store ─────────────────────────────────────────────────────────────────────
-def load_creators():
-    if not CREATORS_JSON.exists():
-        return []
-    try:
-        return json.loads(CREATORS_JSON.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def save_creators(rows):
-    CREATORS_JSON.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
 def _num(value, cast, default=0):
@@ -104,9 +82,12 @@ def _num(value, cast, default=0):
 
 
 def _is_floor(row):
-    """Trust an explicit flag from the scraper; otherwise sniff a trailing '+'."""
+    """Trust an explicit flag from the source; otherwise sniff a trailing '+'."""
     if "gmv_is_floor" in row:
-        return bool(row["gmv_is_floor"])
+        v = row["gmv_is_floor"]
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return bool(v)
     return "+" in str(row.get("gmv", ""))
 
 
@@ -143,13 +124,17 @@ def gmv_per_customer(row):
     Creators with no sales return 0.0 rather than dividing by zero, so they sort
     last.
     """
-    if not row["items_sold"]:
+    items = row.get("items_sold")
+    if items is None:
+        return None          # API rows: items filtered at source, count unknown
+    if not items:
         return 0.0
-    return row["gmv"] / row["items_sold"]
+    return row["gmv"] / items
 
 
 def decorate(row):
-    return {**row, "gmv_per_customer": round(gmv_per_customer(row), 2)}
+    gpc = gmv_per_customer(row)
+    return {**row, "gmv_per_customer": None if gpc is None else round(gpc, 2)}
 
 
 SCORED_METRICS = ("gmv", "gmv_per_customer", "followers", "items_sold")
@@ -177,7 +162,7 @@ def add_balanced_score(rows):
     """
     if not rows:
         return rows
-    columns = {k: _percentiles([r[k] for r in rows]) for k in SCORED_METRICS}
+    columns = {k: _percentiles([r.get(k) or 0 for r in rows]) for k in SCORED_METRICS}
     for i, row in enumerate(rows):
         row["score"] = round(
             sum(columns[k][i] for k in SCORED_METRICS) / len(SCORED_METRICS), 4
@@ -194,6 +179,11 @@ def load_template():
         except (json.JSONDecodeError, OSError):
             pass
     return DEFAULT_TEMPLATE
+
+
+@app.errorhandler(store.StoreError)
+def store_error(e):
+    return jsonify({"error": str(e)}), 500
 
 
 @app.get("/")
@@ -227,28 +217,11 @@ def put_creators():
     incoming = payload if isinstance(payload, list) else payload.get("creators", [])
     if not isinstance(incoming, list):
         return jsonify({"error": "expected a list of creator rows"}), 400
-
-    existing = {r["handle"]: r for r in load_creators()}
-    added = updated = skipped = 0
-    for raw in incoming:
-        row = normalize(raw)
-        if not row["handle"]:
-            skipped += 1
-            continue
-        if row["handle"] in existing:
-            # A re-harvest from Find creators has no tiktok_user_id, so don't let
-            # its blank clobber an id we already resolved from the profile.
-            if not row["tiktok_user_id"]:
-                row.pop("tiktok_user_id")
-            existing[row["handle"]].update(row)
-            updated += 1
-        else:
-            existing[row["handle"]] = row
-            added += 1
-
-    save_creators(list(existing.values()))
-    return jsonify({"added": added, "updated": updated,
-                    "skipped": skipped, "total": len(existing)})
+    rows = [normalize(r) for r in incoming]
+    skipped = sum(1 for r in rows if not r["handle"])
+    result = store.upsert_creators([r for r in rows if r["handle"]])
+    return jsonify({"added": result["added"], "updated": result["updated"],
+                    "skipped": skipped, "total": result["total"]})
 
 
 @app.post("/api/import_csv")
@@ -287,14 +260,7 @@ def _get_messenger():
 
 def _cache_user_id(handle, user_id):
     """Persist a freshly resolved id so the next click is instant."""
-    if not user_id:
-        return
-    rows = load_creators()
-    for row in rows:
-        if row["handle"] == str(handle).lstrip("@"):
-            row["tiktok_user_id"] = user_id
-            save_creators(rows)
-            return
+    store.set_user_id(handle, user_id)
 
 
 @app.post("/api/message")
@@ -368,7 +334,8 @@ def classify(row, gmv_range, follower_range, min_items, min_gmv_pc, category):
         return "reject"
     if follower_range and not _in_range(row["followers"], *follower_range):
         return "reject"
-    if row["items_sold"] < min_items:
+    items = row.get("items_sold")
+    if items is not None and items < min_items:
         return "reject"
 
     if gmv_range:
@@ -380,7 +347,8 @@ def classify(row, gmv_range, follower_range, min_items, min_gmv_pc, category):
         elif not _in_range(row["gmv"], lo, hi):
             return "reject"
 
-    if row["gmv_per_customer"] >= min_gmv_pc:
+    gpc = row["gmv_per_customer"]
+    if gpc is None or gpc >= min_gmv_pc:
         return "match"
     if row["gmv_is_floor"]:
         return "uncertain"   # its true per-customer figure could clear the bar
@@ -411,7 +379,7 @@ def search():
                          min_gmv_pc, category)].append(row)
 
     for group in ("match", "uncertain"):
-        buckets[group].sort(key=lambda r: r[sort_field], reverse=True)
+        buckets[group].sort(key=lambda r: r.get(sort_field) or 0, reverse=True)
 
     ordered = buckets["match"] + (buckets["uncertain"] if show_uncertain else [])
 
@@ -427,50 +395,46 @@ def search():
     })
 
 
-# ── Harvest ───────────────────────────────────────────────────────────────────
-# Scraping takes ~30-60s and opens a Chrome window, so it runs on a worker
-# thread and the UI polls for progress rather than holding a request open.
-_harvest = {"running": False, "stage": "idle", "detail": "", "error": None, "added": 0, "updated": 0}
-_harvest_lock = threading.Lock()
-
-
-def _run_harvest(region, target):
-    from scraper import harvest as do_harvest   # imported late: Chrome only spins up on demand
-
-    def progress(stage, detail):
-        _harvest.update(stage=stage, detail=detail)
-
+# ── Discovery (official creator-search API — spec §6/§9) ────────────────────
+@app.get("/api/discovery_config")
+def get_discovery_config():
     try:
-        rows = do_harvest(region=region, target=target, on_progress=progress)
-        with app.test_request_context(json={"creators": rows}):
-            result = put_creators().get_json()
-        _harvest.update(stage="done", detail=f"{len(rows)} creators",
-                        added=result["added"], updated=result["updated"], error=None)
-    except Exception as exc:
-        _harvest.update(stage="error", detail="", error=str(exc))
-    finally:
-        _harvest["running"] = False
+        cfg = config.load()
+    except config.ConfigError as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"criteria": cfg["criteria"], "want": cfg["want"]})
 
 
-@app.post("/api/harvest")
-def start_harvest():
-    q = request.get_json(silent=True) or {}
-    with _harvest_lock:
-        if _harvest["running"]:
-            return jsonify({"error": "A harvest is already running"}), 409
-        _harvest.update(running=True, stage="starting", detail="", error=None,
-                        added=0, updated=0)
-    threading.Thread(
-        target=_run_harvest,
-        args=(q.get("region", "MY"), _num(q.get("target"), int) or 120),
-        daemon=True,
-    ).start()
-    return jsonify({"started": True})
+@app.post("/api/discovery_config")
+def set_discovery_config():
+    body = request.get_json(silent=True) or {}
+    try:
+        cfg = config.load()
+        criteria = discovery.validate_criteria(body.get("criteria") or {})
+        want = body.get("want")
+        if isinstance(want, bool) or not isinstance(want, int) or not 1 <= want <= 200:
+            raise discovery.CriteriaError(f"want must be an integer 1-200 (got {want!r})")
+        cfg["criteria"], cfg["want"] = {**criteria, "category_ids": []}, want
+        config.save(cfg)
+    except (config.ConfigError, discovery.CriteriaError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"criteria": cfg["criteria"], "want": want})
 
 
-@app.get("/api/harvest/status")
-def harvest_status():
-    return jsonify(_harvest)
+@app.post("/api/discover")
+def api_discover():
+    body = request.get_json(silent=True) or {}
+    try:
+        cfg = config.load()
+        criteria = {**cfg["criteria"], **(body.get("criteria") or {})}
+        want = body.get("want", cfg["want"])
+        result = discovery.run_discovery(criteria, want)
+    except discovery.CriteriaError as e:
+        return jsonify({"error": str(e)}), 400
+    except (config.ConfigError, sheet.SheetError, discovery.ConformanceError,
+            tiktok_api.AuthError, tiktok_api.ApiError, store.StoreError) as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify(result)
 
 
 if __name__ == "__main__":

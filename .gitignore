@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+browser_profile/
+browser_profile_dm/
+tokens.json
+service_account.json
+config.json
+creators.json
+settings.json

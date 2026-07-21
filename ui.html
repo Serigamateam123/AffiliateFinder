@@ -64,8 +64,6 @@ select{cursor:pointer;font-weight:600}
   background:var(--white);cursor:pointer;color:var(--text);font-family:inherit;font-weight:500
 }
 .btn:hover{background:var(--bg)}
-.btn.dark{background:var(--text);color:var(--white);border-color:var(--text);font-weight:600}
-.btn.dark:hover{background:#333}
 .btn.ghost{border-color:transparent;color:var(--muted2);font-size:11px}
 .btn.ghost:hover{background:var(--bg);color:var(--text)}
 .check{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;
@@ -82,7 +80,6 @@ select{cursor:pointer;font-weight:600}
 .status{margin-left:auto;font-size:12px;font-weight:600;color:var(--muted)}
 .note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5}
 .note strong{color:var(--text);font-weight:600}
-.first-run-note{margin-top:8px}
 .progress{
   display:none;margin-top:12px;padding:9px 12px;border-radius:7px;
   font-size:12.5px;font-weight:600;line-height:1.4
@@ -193,31 +190,20 @@ summary:hover{color:var(--text)}
         <input id="limit" type="text" placeholder="25">
       </div>
     </div>
-    <!-- Primary action: fetch from TikTok, then apply the filters above. -->
+    <!-- Primary action: ask TikTok's creator-search API, then apply the filters above. -->
     <div class="row action-row">
-      <button class="btn-primary" id="find_btn" onclick="findCreators()">🔎 Find creators</button>
+      <button class="btn-primary" id="find_btn" onclick="findCreators()">🔎 Discover creators</button>
       <span class="sub-controls">
-        <label for="target" style="margin:0">How many</label>
-        <input id="target" type="text" value="120" style="width:64px">
-        <label for="region" style="margin:0">Region</label>
-        <select id="region" style="width:auto">
-          <option value="MY" selected>Malaysia (MY)</option>
-          <option value="SG">Singapore (SG)</option>
-          <option value="TH">Thailand (TH)</option>
-          <option value="ID">Indonesia (ID)</option>
-          <option value="VN">Vietnam (VN)</option>
-          <option value="PH">Philippines (PH)</option>
-          <option value="GB">United Kingdom (GB)</option>
-          <option value="US">United States (US)</option>
+        <label for="want" style="margin:0">How many</label>
+        <select id="want" style="width:auto">
+          <option value="20">20</option>
+          <option value="60" selected>60</option>
+          <option value="100">100</option>
         </select>
       </span>
       <span class="status" id="status">—</span>
     </div>
     <div class="progress" id="progress"></div>
-    <div class="note first-run-note" id="first_run_note">
-      First time only: a separate Chrome window opens for you to log into Seller
-      Center — after that it's remembered and skips straight to fetching.
-    </div>
 
     <!-- Secondary controls: sort / refine what's already loaded. -->
     <div class="row toolbar">
@@ -241,6 +227,24 @@ summary:hover{color:var(--text)}
     <div class="note" id="note"></div>
   </div>
 
+  <details class="sec" id="crit_sec">
+    <summary class="sec-title" style="margin:0">Discovery criteria — what “Discover creators” asks TikTok for</summary>
+    <div style="margin-top:14px">
+      <div class="fields">
+        <div><label for="c_minf">Min followers</label><input id="c_minf" type="text"></div>
+        <div><label for="c_maxf">Max followers (blank = no cap)</label><input id="c_maxf" type="text"></div>
+        <div><label for="c_gmv">Min GMV (RM)</label><input id="c_gmv" type="text"></div>
+        <div><label for="c_units">Min items sold</label><input id="c_units" type="text"></div>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="saveCriteria()">Save criteria</button>
+        <span class="status" id="crit_status"></span>
+      </div>
+      <div class="note">These are applied by TikTok at the source (bucket filters) plus an exact
+        cut here. GMV and items minimums map to TikTok's buckets; followers are cut exactly.</div>
+    </div>
+  </details>
+
   <div class="sec scroll">
     <table>
       <thead>
@@ -256,7 +260,7 @@ summary:hover{color:var(--text)}
       </thead>
       <tbody id="rows"></tbody>
     </table>
-    <div class="empty" id="empty">No creators yet — set your filters and hit “Find creators”.</div>
+    <div class="empty" id="empty">No creators yet — set your filters and hit “Discover creators”.</div>
   </div>
 
   <details class="sec" id="tpl_sec">
@@ -283,6 +287,9 @@ summary:hover{color:var(--text)}
 <script>
 let current = [];
 
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+
 const fmtNum = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
                   : n >= 1e3 ? (n / 1e3).toFixed(1) + "K"
                   : String(n);
@@ -304,7 +311,21 @@ async function search() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    showProgress(document.getElementById("progress"),
+      "Couldn't load creators: server returned an unreadable response", "err");
+    current = [];
+    return null;
+  }
+  if (!res.ok || data.error) {
+    showProgress(document.getElementById("progress"),
+      "Couldn't load creators: " + (data.error || ("HTTP " + res.status)), "err");
+    current = [];
+    return null;
+  }
   current = data.creators;
   syncCategories(data.all_categories || []);
   render(data);
@@ -320,7 +341,7 @@ function syncCategories(cats) {
   const have = [...sel.options].map(o => o.value);
   if (have.length === wanted.length && have.every((v, i) => v === wanted[i])) return;
   sel.innerHTML = '<option value="">All categories</option>' +
-    cats.map(c => `<option value="${c}">${c}</option>`).join("");
+    cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
   sel.value = cats.includes(chosen) ? chosen : "";
 }
 
@@ -331,22 +352,23 @@ function render(data) {
 
   for (const c of current) {
     const tr = document.createElement("tr");
-    const name = c.profile_url
-      ? `<a href="${c.profile_url}" target="_blank" rel="noopener">@${c.handle}</a>`
-      : "@" + c.handle;
+    const name = /^https?:\/\//i.test(c.profile_url || "")
+      ? `<a href="${esc(c.profile_url)}" target="_blank" rel="noopener">@${esc(c.handle)}</a>`
+      : "@" + esc(c.handle);
     // A floored GMV is a lower bound, so it reads "≥" and never as an exact figure.
     const gmv = c.gmv_is_floor ? "≥" + fmtRm(c.gmv) : fmtRm(c.gmv);
-    const gpc = c.gmv_is_floor ? "≥" + fmtRm(c.gmv_per_customer) : fmtRm(c.gmv_per_customer);
+    const gpc = c.gmv_per_customer == null ? "—"
+      : (c.gmv_is_floor ? "≥" + fmtRm(c.gmv_per_customer) : fmtRm(c.gmv_per_customer));
     const approx = c.gmv_is_floor ? " approx" : "";
     tr.innerHTML = `
-      <td>${name}${c.nickname ? ` <span class="nick">${c.nickname}</span>` : ""}${
+      <td>${name}${c.nickname ? ` <span class="nick">${esc(c.nickname)}</span>` : ""}${
         c.gmv_is_floor ? '<span class="badge" title="TikTok hides this creator\'s exact GMV — shown as RM10K+. The real figure is higher, so these are lower bounds.">GMV HIDDEN</span>' : ""}</td>
-      <td style="color:var(--muted)">${c.category || "—"}</td>
+      <td style="color:var(--muted)">${esc(c.category) || "—"}</td>
       <td class="num">${fmtNum(c.followers)}</td>
       <td class="num${approx}">${gmv}</td>
       <td class="num${approx}">${gpc}</td>
-      <td class="num">${c.items_sold.toLocaleString("en-MY")}</td>
-      <td class="num"><button class="btn dm${c.tiktok_user_id ? " ready" : ""}" data-handle="${c.handle}"
+      <td class="num">${c.items_sold == null ? "—" : c.items_sold.toLocaleString("en-MY")}</td>
+      <td class="num"><button class="btn dm${c.tiktok_user_id ? " ready" : ""}" data-handle="${esc(c.handle)}"
         title="${c.tiktok_user_id ? "Opens the DM chat directly" : "Opens their profile — click Message there (we don't have their DM link yet)"}">Message</button></td>`;
     tr.querySelector("button.dm").addEventListener("click", () => dm(c));
     tbody.appendChild(tr);
@@ -359,7 +381,7 @@ function render(data) {
       ? `<strong>${data.pool} creators loaded, but none match your filters.</strong><br>
          Loosen them — e.g. set <em>GMV</em> to “Any” or “RM10,000+”, since your creators
          have high GMV. Then the matches will appear.`
-      : `No creators yet — set your filters and hit “Find creators”.`;
+      : `No creators yet — set your filters and hit “Discover creators”.`;
   }
   document.getElementById("status").textContent =
     `${data.returned} shown · ${data.matched} confirmed`;
@@ -384,9 +406,10 @@ const fmtToken = (c, k) => {
     case "nickname":         return c.nickname || "@" + c.handle;
     case "category":         return (c.category || "").toLowerCase() || "your";
     case "followers":        return fmtNum(c.followers);
-    case "items_sold":       return c.items_sold.toLocaleString("en-MY");
+    case "items_sold":       return c.items_sold == null ? "—" : c.items_sold.toLocaleString("en-MY");
     case "gmv":              return (c.gmv_is_floor ? "over " : "") + fmtRm(c.gmv);
-    case "gmv_per_customer": return (c.gmv_is_floor ? "over " : "") + fmtRm(c.gmv_per_customer);
+    case "gmv_per_customer": return c.gmv_per_customer == null ? "—"
+                                    : (c.gmv_is_floor ? "over " : "") + fmtRm(c.gmv_per_customer);
     case "level":            return "Lv. " + (c.level || "—");
     default:                 return "{" + k + "}";
   }
@@ -457,6 +480,37 @@ async function loadTemplate() {
   document.getElementById("tpl").value = dm_template;
 }
 
+async function loadCriteria() {
+  const res = await fetch("/api/discovery_config");
+  const cfg = await res.json();
+  if (cfg.error) { document.getElementById("crit_status").textContent = cfg.error; return; }
+  document.getElementById("c_minf").value = cfg.criteria.min_followers;
+  document.getElementById("c_maxf").value = cfg.criteria.max_followers ?? "";
+  document.getElementById("c_gmv").value = cfg.criteria.min_gmv;
+  document.getElementById("c_units").value = cfg.criteria.min_units_sold;
+  document.getElementById("want").value = String(cfg.want);
+}
+
+async function saveCriteria() {
+  const num = v => v.trim() === "" ? null : Number(v.replace(/,/g, ""));
+  const body = {
+    criteria: {
+      min_followers: num(document.getElementById("c_minf").value),
+      max_followers: num(document.getElementById("c_maxf").value),
+      min_gmv: num(document.getElementById("c_gmv").value),
+      min_units_sold: num(document.getElementById("c_units").value),
+      category_ids: [],
+    },
+    want: parseInt(document.getElementById("want").value, 10),
+  };
+  const res = await fetch("/api/discovery_config", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const r = await res.json();
+  document.getElementById("crit_status").textContent = r.error ? ("✗ " + r.error) : "Saved";
+}
+
 async function saveTemplate() {
   const dm_template = document.getElementById("tpl").value;
   await fetch("/api/template", {
@@ -475,60 +529,36 @@ function previewTemplate() {
   out.textContent = draftFor(current[0]);
 }
 
-// Primary flow: fetch fresh from TikTok, then apply the filters and show matches.
+// Primary flow: ask TikTok's creator-search API, dedupe against the outreach
+// sheet + local list, then apply the display filters.
 async function findCreators() {
   const btn = document.getElementById("find_btn");
   const prog = document.getElementById("progress");
-  const res = await fetch("/api/harvest", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      region: document.getElementById("region").value,
-      target: document.getElementById("target").value,
-    }),
-  });
-  const start = await res.json();
-  if (start.error) { showProgress(prog, start.error, "err"); return; }
-
-  btn.disabled = true;
-  btn.textContent = "Searching TikTok…";
-  const labels = {
-    launching:  "Opening the app's Chrome window…",
-    navigating: "Loading TikTok Find creators…",
-    login:      "⚠️ Log into Seller Center in the Chrome window that just opened",
-    waiting:    "Waiting for the creator list…",
-    scrolling:  "Reading creators from TikTok…",
-    done:       "Done",
-  };
-  await new Promise((resolve) => {
-    const poll = setInterval(async () => {
-      const s = await (await fetch("/api/harvest/status")).json();
-      if (s.error) {
-        showProgress(prog, "Couldn't finish: " + s.error, "err");
-      } else {
-        const tone = s.stage === "login" ? "warn" : "run";
-        showProgress(prog, `${labels[s.stage] || s.stage}${s.detail ? " · " + s.detail : ""}`, tone);
-      }
-      if (!s.running) {
-        clearInterval(poll);
-        if (!s.error) showProgress(prog, `✓ Loaded ${s.added} creators from TikTok`, "ok");
-        resolve();
-      }
-    }, 800);
-  });
-  btn.disabled = false;
-  btn.textContent = "🔎 Find creators";
-  // Combine the fetch result with the filter result so the banner never reads
-  // "loaded 12" while the table sits empty — that looked like a lie.
-  const s = await (await fetch("/api/harvest/status")).json();
-  const data = await search();   // apply category / GMV / follower / etc.
-  const added = s.added || 0;
-  if (data.returned > 0) {
-    showProgress(prog,
-      `✓ Fetched ${added} new · showing ${data.returned} of ${data.pool} that match your filters`, "ok");
-  } else {
-    showProgress(prog,
-      `✓ Fetched ${added} new (${data.pool} total loaded), but 0 match your filters — loosen them (try GMV “Any” or “RM10,000+”)`, "warn");
+  btn.disabled = true; btn.textContent = "Discovering…";
+  showProgress(prog, "Searching TikTok's creator marketplace… (up to a minute)", "run");
+  try {
+    const res = await fetch("/api/discover", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ want: parseInt(document.getElementById("want").value, 10) }),
+    });
+    const r = await res.json();
+    if (r.error) { showProgress(prog, "Couldn't discover: " + r.error, "err"); return; }
+    const data = await search();
+    if (!data) return;
+    const summary = `✓ ${r.added} new · ${r.skipped_contacted} already contacted · ` +
+                    `${r.skipped_known} already in list · ${r.pages_used} page${r.pages_used === 1 ? "" : "s"}`;
+    if (r.added === 0 && r.exhausted) {
+      showProgress(prog, `0 creators matched your criteria (${r.pages_used} pages searched) — ` +
+                         `open “Discovery criteria” below and loosen them`, "warn");
+    } else if (r.exhausted) {
+      showProgress(prog, summary + " — stopped early: criteria may be too narrow", "warn");
+    } else {
+      showProgress(prog, summary, "ok");
+    }
+  } catch (e) {
+    showProgress(prog, "Couldn't reach the server — is it running from the launcher?", "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "🔎 Discover creators";
   }
 }
 
@@ -543,18 +573,13 @@ async function clearAll() {
   search();
 }
 
-async function clearAll() {
-  if (!confirm("Remove every stored creator?")) return;
-  await fetch("/api/creators", { method: "DELETE" });
-  search();
-}
-
 // Re-run the search whenever a dropdown filter changes.
 for (const id of ["category", "gmv_bucket", "follower_tier"]) {
   document.getElementById(id).addEventListener("change", search);
 }
 
 loadTemplate();
+loadCriteria();
 search();
 </script>
 </body>

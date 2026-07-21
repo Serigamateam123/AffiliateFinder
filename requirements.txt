@@ -1,2 +1,4 @@
 flask
 playwright
+requests
+google-auth
