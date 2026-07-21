@@ -12,6 +12,7 @@ the filtering, and the ranking. See DATA_CONTRACT below for the row shape.
 import csv, io, json, os, threading, webbrowser
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
+import categories
 import config
 import discovery
 import sheet
@@ -47,7 +48,10 @@ DEFAULT_TEMPLATE = (
 #                          exact figure. The number is then a LOWER BOUND: real
 #                          GMV is somewhere above it. ~44% of rows arrive this way.
 #   items_sold       int
-#   category         str
+#   category         str   primary category name (first of `categories`)
+#   categories       []str all category names, mapped from the API's
+#                          category_ids via categories.py (unknown IDs pass
+#                          through as the raw ID) — added by decorate()
 #   level            int   creator level (Lv. 1-6)
 #   avg_video_views  int
 #   engagement_rate  str   e.g. "1.3%"
@@ -134,7 +138,15 @@ def gmv_per_customer(row):
 
 def decorate(row):
     gpc = gmv_per_customer(row)
-    return {**row, "gmv_per_customer": None if gpc is None else round(gpc, 2)}
+    # API rows carry raw category_ids; legacy scraped rows carry one name in
+    # `category`. Either way the UI gets `categories` (all names, for the
+    # filter/dropdown) and `category` (the primary one, for the table and the
+    # DM {category} token).
+    ids = row.get("category_ids") or []
+    cats = categories.names(ids) if ids else \
+        ([row["category"]] if row.get("category") else [])
+    return {**row, "gmv_per_customer": None if gpc is None else round(gpc, 2),
+            "categories": cats, "category": cats[0] if cats else ""}
 
 
 SCORED_METRICS = ("gmv", "gmv_per_customer", "followers", "items_sold")
@@ -330,8 +342,12 @@ def classify(row, gmv_range, follower_range, min_items, min_gmv_pc, category):
     also a floor for those rows, so when it's the only failing gate the creator
     lands in "uncertain" rather than being dropped.
     """
-    if category and row["category"].strip().lower() != category.strip().lower():
-        return "reject"
+    if category:
+        row_cats = [c.strip().lower() for c in (row.get("categories") or [])]
+        if not row_cats and row.get("category"):
+            row_cats = [row["category"].strip().lower()]
+        if category.strip().lower() not in row_cats:
+            return "reject"
     if follower_range and not _in_range(row["followers"], *follower_range):
         return "reject"
     items = row.get("items_sold")
@@ -390,7 +406,7 @@ def search():
         "pool": len(pool),
         "currency": "RM",
         # Distinct categories present, so the UI can populate its dropdown.
-        "all_categories": sorted({r["category"] for r in pool if r["category"]}),
+        "all_categories": sorted({c for r in pool for c in r.get("categories", []) if c}),
         "creators": ordered[:limit],
     })
 

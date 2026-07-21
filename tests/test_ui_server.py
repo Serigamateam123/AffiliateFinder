@@ -119,3 +119,41 @@ def test_search_sorts_survive_mixed_pool(client):
 ])
 def test_is_floor_truth_table(row, expected):
     assert ui_server._is_floor(row) is expected
+
+
+# --- category names from category_ids (O4 client side) ----------------------
+
+def put_row_with_ids(client, handle, ids):
+    row = api_row(handle)
+    row["category_ids"] = ids
+    store.upsert_creators([row])
+
+
+def search(client, **body):
+    r = client.post("/api/search", json=body)
+    assert r.status_code == 200
+    return r.get_json()
+
+
+def test_category_ids_map_to_names_and_dropdown(client):
+    put_row_with_ids(client, "healthbeauty", ["700645", "601450"])
+    data = search(client)
+    row = next(c for c in data["creators"] if c["handle"] == "healthbeauty")
+    assert row["category"] == "Health"                       # primary
+    assert row["categories"] == ["Health", "Beauty & Personal Care"]
+    assert "Health" in data["all_categories"]
+    assert "Beauty & Personal Care" in data["all_categories"]
+
+
+def test_category_filter_matches_any_of_the_row_categories(client):
+    put_row_with_ids(client, "healthbeauty", ["700645", "601450"])
+    hits = search(client, category="Beauty & Personal Care")["creators"]
+    assert [c["handle"] for c in hits] == ["healthbeauty"]
+    assert search(client, category="Pet Supplies")["creators"] == []
+
+
+def test_unknown_category_id_passes_through_never_hidden(client):
+    put_row_with_ids(client, "mystery", ["999999"])
+    row = next(c for c in search(client)["creators"] if c["handle"] == "mystery")
+    assert row["categories"] == ["999999"]
+    assert "999999" in search(client)["all_categories"]
