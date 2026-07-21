@@ -531,7 +531,7 @@ async function findCreators() {
       body: JSON.stringify({ want: parseInt(document.getElementById("want").value, 10) }),
     });
     const r = await res.json();
-    if (r.error) { showProgress(prog, "Couldn't discover: " + esc(r.error), "err"); return; }
+    if (r.error) { showProgress(prog, "Couldn't discover: " + r.error, "err"); return; }
     const data = await search();
     const summary = `✓ ${r.added} new · ${r.skipped_contacted} already contacted · ` +
                     `${r.skipped_known} already in list · ${r.pages_used} page${r.pages_used === 1 ? "" : "s"}`;
