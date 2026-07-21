@@ -2,3 +2,4 @@ flask
 playwright
 requests
 google-auth
+openpyxl

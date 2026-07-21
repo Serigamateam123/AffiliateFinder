@@ -150,10 +150,14 @@ The outreach sheet is how this tool knows who's already been contacted — it
 never keeps its own separate "do not contact" list. The tool only ever
 *reads* one column from it.
 
+The outreach file can be a **native Google Sheet or an Excel (.xlsx) file
+uploaded to Drive** — the tool detects which and reads it the right way.
+(Nurin's is an .xlsx.)
+
 1. In Google Cloud Console, create a **service account** (or reuse an
    existing project's): IAM & Admin → Service Accounts → Create Service
-   Account. Enable the **Google Sheets API** on that project if it isn't
-   already.
+   Account. Enable **both the Google Sheets API and the Google Drive API**
+   on that project if they aren't already.
 2. Create a JSON key for that service account and download it. Save it into
    this app's folder as **`service_account.json`** (the exact filename
    `config.json`'s `sheet.service_account_file` points to).
@@ -167,8 +171,11 @@ never keeps its own separate "do not contact" list. The tool only ever
    `sheet.handle_column` / `sheet.handle_header` (which column holds
    contacted handles, and the exact text of its header cell).
 
-The tool reads exactly that one column, checks that the header cell matches
-what's configured, and **refuses to run discovery at all** if it doesn't
+The header cell doesn't have to be the very first row — a few banner rows
+above it are fine (the tool scans the first 10 rows for the exact header).
+
+The tool reads exactly that one column, checks that the configured header
+appears in it, and **refuses to run discovery at all** if it doesn't
 match or the column looks empty — see §6 for what that looks like and what
 to do about it. This is deliberate: surfacing a creator who's already been
 contacted is the one mistake this tool must never make, so when it's in
@@ -216,13 +223,16 @@ something that needs J.
 | `tokens.json is missing` | The TikTok auth ceremony has never been run on this machine. | J — run the §3 ceremony. |
 | `token refresh rejected` | TikTok rejected the saved refresh token (it expired, or was consumed by another run). | J — re-run the §3 ceremony from step 2. |
 | `PERSISTING ROTATED TOKENS FAILED` | TikTok issued a new token but this machine couldn't save it to disk (disk full, permissions, etc). The credential TikTok just issued is now the **only** valid one. | J — fix the disk problem, then re-run the §3 ceremony. |
-| `expected header` (at the top of a sheet range) | `config.json`'s `sheet.outreach_tab` / `handle_column` / `handle_header` don't point at the column you think they do. | Nurin — fix the tab/column/header values in `config.json` (§4). |
+| `expected header` (in a sheet range) | `config.json`'s `sheet.outreach_tab` / `handle_column` / `handle_header` don't point at the column you think they do. | Nurin — fix the tab/column/header values in `config.json` (§4). |
+| `tab '…' not found in the outreach file` | The outreach file's tab was renamed (the error lists the tabs that exist). | Nurin — set `sheet.outreach_tab` to the current tab name (§4). |
+| `Drive API HTTP …` / `Drive download HTTP …` | Google refused the file lookup or download — usually the Drive API isn't enabled on the project, or the file is no longer shared with the service account. | Nurin — re-check §4 steps 1 and 3; escalate to J if it persists. |
+| `unsupported outreach file type` | The outreach file was replaced with something that isn't a Google Sheet or .xlsx. | Stop and tell J. |
 | `0 contacted handles` / `refusing to run discovery without a dedupe source` (sheet) | The configured column looks empty — almost certainly the wrong column, not an actually-empty sheet. | Nurin — fix the tab/column in `config.json` (§4). |
 | `TikTok error 45101004` | Daily API quota reached. | Nobody — just try again tomorrow. |
 | `filter was not applied` | TikTok's search results didn't respect the GMV filter this run — the app aborts rather than show unfiltered results. This means TikTok changed how the API behaves. | Stop and tell J — this needs a code fix, not a config fix. |
 | `creators.json is unreadable` / `refusing to treat it as empty` (store) | The local creator store file is corrupted. | Stop, **do not delete `creators.json`**, tell J. |
 | `service account file missing` | `service_account.json` isn't in the app folder. | Nurin — see §4 step 2. |
-| `Google auth failed` | The service account key is invalid, revoked, or the Sheets API isn't enabled for that Google Cloud project. | Nurin first (re-check §4); escalate to J if it persists. |
+| `Google auth failed` | The service account key is invalid, revoked, or the Sheets/Drive APIs aren't enabled for that Google Cloud project. | Nurin first (re-check §4); escalate to J if it persists. |
 
 ---
 
