@@ -29,11 +29,12 @@ UNITS_BUCKETS = (
     ("UNITS_SOLD_RANGE_1000_AND_ABOVE", 1_000, None),
 )
 # The search API SILENTLY IGNORES unknown body fields (verified live
-# 2026-07-20) — bodies may only be built from this verified registry.
+# 2026-07-20) — bodies may only be built from this registry, which lists
+# ONLY fields verified in the spec §5 table. Do not add a field here
+# without a live probe proving the API actually applies it.
 KNOWN_BODY_FIELDS = frozenset({
     "search_key", "keyword", "follower_demographics", "gmv_ranges",
-    "units_sold_ranges", "category", "content_performance",
-    "affiliate_data", "advanced_filters",
+    "units_sold_ranges", "category", "advanced_filters",
 })
 
 
@@ -102,7 +103,9 @@ def to_store_row(c, now_iso):
         "nickname": str(c.get("nickname") or ""),
         "creator_open_id": str(c.get("creator_open_id") or ""),
         "followers": int(c.get("follower_count") or 0),
-        # exact — the API returns the real figure even where the UI shows "RM10K+"
+        # exact — the API returns the real figure even where the UI shows "RM10K+".
+        # Currency labels in responses are unreliable (USD label on RM values);
+        # amounts are treated as RM per spec §5 Gotcha 2 (selection_region MY).
         "gmv": float((c.get("gmv") or {}).get("amount") or 0),
         "gmv_is_floor": False,
         "video_gmv": float((c.get("video_gmv") or {}).get("amount") or 0),
@@ -171,12 +174,14 @@ def run_discovery(criteria, want, *, page_budget=50,
             if not _qualifies(row, criteria):
                 continue
             known_handles.add(row["handle"])
+            if row["creator_open_id"]:
+                known_ids.add(row["creator_open_id"])
             new_rows.append(row)
             if len(new_rows) >= want:
                 break
         search_key = data.get("search_key") or search_key
         page_token = data.get("next_page_token") or ""
-        if not page_token:
+        if not page_token or len(new_rows) >= want:
             break
         page_sleep(0.25)
 

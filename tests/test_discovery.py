@@ -50,6 +50,13 @@ def test_body_only_uses_verified_fields():
     assert body["search_key"] == "sk"
 
 
+def test_known_body_fields_is_exactly_the_verified_registry():
+    # Trust anchor: only fields verified live (spec §5) may appear here.
+    assert d.KNOWN_BODY_FIELDS == {
+        "search_key", "keyword", "follower_demographics", "gmv_ranges",
+        "units_sold_ranges", "category", "advanced_filters"}
+
+
 def test_gmv_conformance_catches_ignored_filter():
     rows = [api_creator("a", floor_min="0")]
     with pytest.raises(d.ConformanceError, match="not applied"):
