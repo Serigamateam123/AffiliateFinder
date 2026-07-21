@@ -95,3 +95,27 @@ def test_search_sorts_survive_mixed_pool(client):
         r = client.post("/api/search", json={"sort": sort_value})
         assert r.status_code == 200, sort_value
         assert len(r.get_json()["creators"]) == 2, sort_value
+
+
+# _is_floor truth table: explicit flags from stored rows (bool or CSV-era
+# strings) always win; rows with no flag fall back to sniffing a trailing
+# '+' in the GMV text ("RM10K+" style legacy CSV imports).
+@pytest.mark.parametrize("row, expected", [
+    ({"gmv_is_floor": True,    "gmv": "100"},    True),
+    ({"gmv_is_floor": False,   "gmv": "RM10K+"}, False),  # explicit flag beats the sniff
+    ({"gmv_is_floor": "true",  "gmv": "100"},    True),
+    ({"gmv_is_floor": " TRUE ","gmv": "100"},    True),
+    ({"gmv_is_floor": "1",     "gmv": "100"},    True),
+    ({"gmv_is_floor": "yes",   "gmv": "100"},    True),
+    ({"gmv_is_floor": "false", "gmv": "RM10K+"}, False),
+    ({"gmv_is_floor": "0",     "gmv": "RM10K+"}, False),
+    ({"gmv_is_floor": "",      "gmv": "RM10K+"}, False),
+    ({"gmv_is_floor": 1},                        True),
+    ({"gmv_is_floor": 0},                        False),
+    ({"gmv": "RM10K+"},                          True),   # no flag: sniff the '+'
+    ({"gmv": "12345"},                           False),
+    ({"gmv": 12345.0},                           False),
+    ({},                                         False),
+])
+def test_is_floor_truth_table(row, expected):
+    assert ui_server._is_floor(row) is expected
