@@ -57,4 +57,8 @@ def contacted_handles(sheet_cfg):
         raise SheetError(f"could not reach Google Sheets: {e}") from e
     if r.status_code != 200:
         raise SheetError(f"Sheets API HTTP {r.status_code}: {r.text[:200]}")
-    return parse_contacted(r.json().get("values") or [], sheet_cfg["handle_header"], where)
+    try:
+        payload = r.json()
+    except ValueError as e:
+        raise SheetError(f"Sheets API returned a non-JSON response: {e}") from e
+    return parse_contacted(payload.get("values") or [], sheet_cfg["handle_header"], where)
