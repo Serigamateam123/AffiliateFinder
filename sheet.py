@@ -49,8 +49,9 @@ def contacted_handles(sheet_cfg):
 
     tab, col = sheet_cfg["outreach_tab"], sheet_cfg["handle_column"]
     where = f"{tab}!{col}"
+    range_ref = f"'{tab}'!{col}:{col}"
     url = (f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_cfg['sheet_id']}"
-           f"/values/{quote(where + ':' + col)}")
+           f"/values/{quote(range_ref)}")
     try:
         r = requests.get(url, headers={"Authorization": f"Bearer {creds.token}"}, timeout=30)
     except requests.RequestException as e:

@@ -68,7 +68,10 @@ def load_tokens():
 def save_tokens(t):
     tmp = TOKENS_JSON.with_suffix(".json.tmp")
     try:
-        tmp.write_text(json.dumps(t, indent=2), encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(t, indent=2))
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp, 0o600)
         os.replace(tmp, TOKENS_JSON)
     except OSError as e:
@@ -94,10 +97,13 @@ def get_access_token():
 
 
 def _refresh(t):
-    r = requests.get(f"{AUTH_HOST}/api/v2/token/refresh", params={
-        "app_key": t["app_key"], "app_secret": t["app_secret"],
-        "refresh_token": t["refresh_token"], "grant_type": "refresh_token",
-    }, timeout=30)
+    try:
+        r = requests.get(f"{AUTH_HOST}/api/v2/token/refresh", params={
+            "app_key": t["app_key"], "app_secret": t["app_secret"],
+            "refresh_token": t["refresh_token"], "grant_type": "refresh_token",
+        }, timeout=30)
+    except requests.RequestException as e:
+        raise AuthError(f"token refresh failed: network error ({e})") from e
     if r.status_code != 200:
         raise AuthError(f"token refresh failed: HTTP {r.status_code}")
     j = r.json()
@@ -124,15 +130,30 @@ def call_tiktok(method, path, query=None, body=None, _retry_auth=True):
     q["sign"] = sign(t["app_secret"], path, q, body_str)
 
     resp = None
+    network_err = None
     for attempt in range(3):
-        resp = requests.request(method, f"{BASE_URL}{path}", params=q,
-                                headers={"x-tts-access-token": t["access_token"],
-                                         "content-type": "application/json"},
-                                data=body_str or None, timeout=30)
+        try:
+            resp = requests.request(method, f"{BASE_URL}{path}", params=q,
+                                    headers={"x-tts-access-token": t["access_token"],
+                                             "content-type": "application/json"},
+                                    data=body_str or None, timeout=30)
+        except requests.RequestException as e:
+            network_err = e
+            resp = None
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise ApiError(-1, f"network error after retries: {e}") from e
+        network_err = None
         if resp.status_code == 429 or resp.status_code >= 500:
-            time.sleep(1.5 * (attempt + 1))
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
             continue
-        j = resp.json()
+        try:
+            j = resp.json()
+        except ValueError as e:
+            raise ApiError(-1, f"non-JSON response (HTTP {resp.status_code}): "
+                                f"{resp.text[:200]}") from e
         if j.get("code") == 0:
             return j.get("data") or {}
         code = j.get("code", -1)
@@ -147,6 +168,11 @@ def call_tiktok(method, path, query=None, body=None, _retry_auth=True):
                     _refresh(current)
             return call_tiktok(method, path, query, body, _retry_auth=False)
         raise ApiError(code, j.get("message", ""), j.get("request_id", ""))
+    # Only reachable via the 429/5xx branch on the final attempt (network
+    # errors raise immediately above), but stay defensive: resp could in
+    # principle be None here, so never assume it has a status_code.
+    if resp is None:
+        raise ApiError(-1, f"network error after retries: {network_err}")
     raise ApiError(-1, f"gave up after retries (last HTTP {resp.status_code})")
 
 

@@ -120,3 +120,29 @@ def test_call_tiktok_raises_apierror_with_code(tmp_path, monkeypatch):
     with pytest.raises(t.ApiError) as ei:
         t.call_tiktok("POST", t.SEARCH_PATH, body={})
     assert ei.value.code == 45101004
+
+
+def test_call_tiktok_network_error_after_retries_raises_apierror(tmp_path, monkeypatch):
+    seed(tmp_path, monkeypatch, expires_in=9999)
+    monkeypatch.setattr(t.time, "sleep", lambda *a, **kw: None)
+
+    def always_boom(*a, **kw):
+        raise t.requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr(t.requests, "request", always_boom)
+    with pytest.raises(t.ApiError, match="network error"):
+        t.call_tiktok("POST", t.SEARCH_PATH, body={})
+
+
+def test_call_tiktok_non_json_response_raises_apierror(tmp_path, monkeypatch):
+    seed(tmp_path, monkeypatch, expires_in=9999)
+
+    class NonJsonResp:
+        status_code = 200
+        text = "<html>gateway error</html>"
+        def json(self):
+            raise ValueError("No JSON object could be decoded")
+
+    monkeypatch.setattr(t.requests, "request", lambda *a, **kw: NonJsonResp())
+    with pytest.raises(t.ApiError, match="non-JSON"):
+        t.call_tiktok("POST", t.SEARCH_PATH, body={})

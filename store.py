@@ -60,7 +60,7 @@ def _keep(value):
 
 def upsert_creators(incoming):
     with _lock:
-        existing = {r["handle"]: r for r in _load()}
+        existing = {r.get("handle", ""): r for r in _load()}
         added = updated = 0
         for row in incoming:
             handle = row.get("handle", "")
