@@ -82,3 +82,16 @@ def test_corrupt_store_returns_500_not_empty(client):
     store.DATA_FILE.write_text("{broken", encoding="utf-8")
     r = client.get("/api/creators")
     assert r.status_code == 500 and "refusing" in r.get_json()["error"]
+
+
+def test_search_sorts_survive_mixed_pool(client):
+    legacy_row = {"handle": "legacyrow", "nickname": "Legacy", "followers": 20_000,
+                  "gmv": 5_000.0, "gmv_is_floor": False, "items_sold": 200,
+                  "category": "", "level": 1, "avg_video_views": 500,
+                  "engagement_rate": "1.0%", "profile_url": "", "tiktok_user_id": "",
+                  "fetched_at": "2026-07-20"}
+    store.save_creators([legacy_row, api_row()])
+    for sort_value in ("balanced", "followers", "gmv", "items_sold", "gmv_per_customer"):
+        r = client.post("/api/search", json={"sort": sort_value})
+        assert r.status_code == 200, sort_value
+        assert len(r.get_json()["creators"]) == 2, sort_value

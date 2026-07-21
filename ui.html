@@ -314,7 +314,21 @@ async function search() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    showProgress(document.getElementById("progress"),
+      "Couldn't load creators: server returned an unreadable response", "err");
+    current = [];
+    return { creators: [], all_categories: [], matched: 0, uncertain: 0, returned: 0, pool: 0 };
+  }
+  if (!res.ok || data.error) {
+    showProgress(document.getElementById("progress"),
+      "Couldn't load creators: " + (data.error || ("HTTP " + res.status)), "err");
+    current = [];
+    return { creators: [], all_categories: [], matched: 0, uncertain: 0, returned: 0, pool: 0 };
+  }
   current = data.creators;
   syncCategories(data.all_categories || []);
   render(data);
@@ -341,7 +355,7 @@ function render(data) {
 
   for (const c of current) {
     const tr = document.createElement("tr");
-    const name = c.profile_url
+    const name = /^https?:\/\//i.test(c.profile_url || "")
       ? `<a href="${esc(c.profile_url)}" target="_blank" rel="noopener">@${esc(c.handle)}</a>`
       : "@" + esc(c.handle);
     // A floored GMV is a lower bound, so it reads "≥" and never as an exact figure.

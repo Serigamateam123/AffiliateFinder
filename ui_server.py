@@ -3,10 +3,11 @@ Affiliate creator finder — local dashboard
 Run: python ui_server.py
 Opens at: http://localhost:7374
 
-Creator rows come from TikTok's official creator-search API via POST /api/discover
-(see discovery.py), which also upserts them via POST /api/creators. This server
-owns the store, the filtering, and the ranking. See DATA_CONTRACT below for the
-row shape.
+Creator rows come primarily from TikTok's official creator-search API via
+POST /api/discover (see discovery.py), which also upserts them via
+POST /api/creators. The CSV-import path (/api/import_csv) still accepts
+scraped exports for hand-curated or legacy data. This server owns the store,
+the filtering, and the ranking. See DATA_CONTRACT below for the row shape.
 """
 import csv, io, json, os, threading, webbrowser
 from pathlib import Path
@@ -37,7 +38,7 @@ DEFAULT_TEMPLATE = (
 )
 
 # ── Data contract ─────────────────────────────────────────────────────────────
-# One creator row, as scraped from Affiliate Center → Find creators (MY).
+# One creator row, from TikTok's creator-search API (or a scraped CSV import).
 #   handle           str   unique key, used for upsert
 #   nickname         str   display name
 #   followers        int
@@ -378,7 +379,7 @@ def search():
                          min_gmv_pc, category)].append(row)
 
     for group in ("match", "uncertain"):
-        buckets[group].sort(key=lambda r: r[sort_field], reverse=True)
+        buckets[group].sort(key=lambda r: r.get(sort_field) or 0, reverse=True)
 
     ordered = buckets["match"] + (buckets["uncertain"] if show_uncertain else [])
 
