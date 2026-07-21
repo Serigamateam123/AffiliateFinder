@@ -6,7 +6,7 @@ Ceremony (J-owned, spec §4/O5):
      (service_id is on the app's detail page — it is NOT the App Key)
   3. Open the link as the shop's Seller Center account, approve, copy `code=` from
      the redirect URL (single-use, expires ~30 min).
-  4. ./venv/bin/python bootstrap_auth.py <code> --app-key K --app-secret S \
+  4. ./venv/bin/python bootstrap_auth.py <code> --app-key K --app-secret S
          [--shop-cipher C]
      shop_cipher: affiliate-scoped apps usually CANNOT discover it themselves
      (105005 on /authorization/*). The cipher is portable across apps for the
